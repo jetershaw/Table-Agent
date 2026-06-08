@@ -1,0 +1,22 @@
+mineru:
+  name: MinerU-Pro
+  endpoint: http://100.103.11.28:20000/v1/chat/completions
+  model: MinerU-Pro
+
+qwen:
+  name: Qwen35-397B
+  endpoint: http://10.102.214.86:20000/v1/chat/completions
+  model: Qwen35-397B
+
+image_input_mode: base64
+max_split_iterations: 3
+max_recognition_retries: 2
+max_chunks: 12
+
+paths:
+  input_jsonl: /mnt/shared-storage-user/mineru2-shared/xiaojutao/bench/fine_grained_bench/fine_grained_bench-large_table.jsonl
+  image_dir: /mnt/shared-storage-user/mineru2-shared/xiaojutao/bench/fine_grained_bench/images
+  output_jsonl: /mnt/shared-storage-user/mineru2-shared/xiaojutao/Table-Agent/outputs/table_agent.jsonl
+  raw_response_dir: /mnt/shared-storage-user/mineru2-shared/xiaojutao/Table-Agent/raw_responses
+  crop_dir: /mnt/shared-storage-user/mineru2-shared/xiaojutao/Table-Agent/crops
+
