@@ -8,6 +8,7 @@ from pathlib import Path
 
 from table_agent.baseline import run_baseline_collection
 from table_agent.config import load_config
+from table_agent.merge import merge_crop_recognition_output
 from table_agent.recognition import run_crop_recognition
 from table_agent.smoke import run_vision_smoke
 from table_agent.splitter import run_split_generation
@@ -102,6 +103,12 @@ def main() -> int:
     crop_parser.add_argument("--limit", type=int, default=None)
     crop_parser.add_argument("--output-json", default=None)
 
+    merge_parser = subparsers.add_parser(
+        "merge", help="Merge crop-level OTSL outputs and convert to HTML."
+    )
+    merge_parser.add_argument("--input-json", required=True)
+    merge_parser.add_argument("--output-json", required=True)
+
     args = parser.parse_args()
     if args.command == "config":
         config = load_config(args.config)
@@ -154,6 +161,10 @@ def main() -> int:
             limit=args.limit,
             output_json=args.output_json,
         )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "merge":
+        result = merge_crop_recognition_output(args.input_json, args.output_json)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 
