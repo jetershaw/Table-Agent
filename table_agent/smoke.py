@@ -10,7 +10,7 @@ from table_agent.client import VisionClient
 from table_agent.config import AgentConfig
 
 
-MINERU_TABLE_PROMPT = "Table Recognition: xxx"
+MINERU_TABLE_PROMPT = "Table Recognition:"
 QWEN_VISUAL_PROMPT = (
     "Inspect this table image briefly. Answer whether the image is readable and "
     "whether horizontal split lines should avoid cutting through text."

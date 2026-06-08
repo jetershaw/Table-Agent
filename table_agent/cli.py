@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
+from table_agent.baseline import run_baseline_collection
 from table_agent.config import load_config
 from table_agent.smoke import run_vision_smoke
 
@@ -46,6 +47,19 @@ def main() -> int:
         help="Service to call. Defaults to both.",
     )
 
+    baseline_parser = subparsers.add_parser(
+        "baseline", help="Collect full-image MinerU baseline results."
+    )
+    baseline_parser.add_argument(
+        "--config",
+        default=str(DEFAULT_CONFIG),
+        help=f"Path to config YAML. Defaults to {DEFAULT_CONFIG}.",
+    )
+    baseline_parser.add_argument("--start", type=int, default=0)
+    baseline_parser.add_argument("--end", type=int, default=None)
+    baseline_parser.add_argument("--limit", type=int, default=None)
+    baseline_parser.add_argument("--output-jsonl", default=None)
+
     args = parser.parse_args()
     if args.command == "config":
         config = load_config(args.config)
@@ -54,6 +68,17 @@ def main() -> int:
     if args.command == "smoke":
         config = load_config(args.config)
         result = run_vision_smoke(config, args.image, args.service)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "baseline":
+        config = load_config(args.config)
+        result = run_baseline_collection(
+            config,
+            start=args.start,
+            end=args.end,
+            limit=args.limit,
+            output_jsonl=args.output_jsonl,
+        )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 

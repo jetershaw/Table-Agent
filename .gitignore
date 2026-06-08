@@ -2,3 +2,6 @@ __pycache__/
 *.py[cod]
 
 raw_responses/*.json
+outputs/*.jsonl
+outputs/*.json
+raw_responses/**/*.json
