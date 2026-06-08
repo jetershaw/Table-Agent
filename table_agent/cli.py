@@ -10,6 +10,7 @@ from table_agent.baseline import run_baseline_collection
 from table_agent.config import load_config
 from table_agent.merge import merge_crop_recognition_output
 from table_agent.recognition import run_crop_recognition
+from table_agent.runner import run_end_to_end
 from table_agent.smoke import run_vision_smoke
 from table_agent.splitter import run_split_generation
 from table_agent.split_review import run_split_review
@@ -109,6 +110,20 @@ def main() -> int:
     merge_parser.add_argument("--input-json", required=True)
     merge_parser.add_argument("--output-json", required=True)
 
+    run_parser = subparsers.add_parser(
+        "run", help="Run end-to-end baseline and Table Agent smoke."
+    )
+    run_parser.add_argument(
+        "--config",
+        default=str(DEFAULT_CONFIG),
+        help=f"Path to config YAML. Defaults to {DEFAULT_CONFIG}.",
+    )
+    run_parser.add_argument("--start", type=int, default=0)
+    run_parser.add_argument("--end", type=int, default=None)
+    run_parser.add_argument("--limit", type=int, default=None)
+    run_parser.add_argument("--output-jsonl", default=None)
+    run_parser.add_argument("--sample-timeout", type=int, default=120)
+
     args = parser.parse_args()
     if args.command == "config":
         config = load_config(args.config)
@@ -165,6 +180,18 @@ def main() -> int:
         return 0
     if args.command == "merge":
         result = merge_crop_recognition_output(args.input_json, args.output_json)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "run":
+        config = load_config(args.config)
+        result = run_end_to_end(
+            config,
+            start=args.start,
+            end=args.end,
+            limit=args.limit,
+            output_jsonl=args.output_jsonl,
+            sample_timeout=args.sample_timeout,
+        )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 

@@ -7,10 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from table_agent.benchmark import iter_benchmark_records, resolve_image_path
-from table_agent.client import VisionClient
+from table_agent.mineru_client import MinerUTableClient
 from table_agent.config import AgentConfig
 from table_agent.otsl import otsl_to_html_when_possible
-from table_agent.smoke import MINERU_TABLE_PROMPT
 
 
 def run_baseline_collection(
@@ -26,7 +25,7 @@ def run_baseline_collection(
     raw_dir = Path(config.paths.raw_response_dir) / "baseline"
     raw_dir.mkdir(parents=True, exist_ok=True)
 
-    client = VisionClient(config.mineru)
+    client = MinerUTableClient(config.mineru)
     total = 0
     success = 0
     failed = 0
@@ -39,10 +38,10 @@ def run_baseline_collection(
             row = dict(record)
             try:
                 image_path = resolve_image_path(record, config.paths.image_dir)
-                raw_response = client.chat_with_image(image_path, MINERU_TABLE_PROMPT)
+                raw_response = client.recognize_table(image_path)
                 raw_path = raw_dir / f"{record_index:05d}.json"
                 _write_json(raw_path, raw_response)
-                otsl = extract_message_content(raw_response)
+                otsl = str(raw_response.get("otsl", "") or "")
                 html = otsl_to_html_when_possible(otsl)
                 status = "success" if otsl else "failed"
                 if status == "success":
@@ -52,7 +51,7 @@ def run_baseline_collection(
                 row["baseline_parse_result"] = {
                     "status": status,
                     "otsl": otsl,
-                    "html": html,
+                    "html": raw_response.get("html") or html,
                     "raw_response": {"path": str(raw_path)},
                 }
             except Exception as exc:
@@ -72,21 +71,6 @@ def run_baseline_collection(
         "success": success,
         "failed": failed,
     }
-
-
-def extract_message_content(response: dict[str, Any]) -> str:
-    choices = response.get("choices") or []
-    if not choices:
-        return ""
-    message = choices[0].get("message") or {}
-    content = message.get("content", "")
-    if isinstance(content, list):
-        parts = []
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                parts.append(str(item.get("text", "")))
-        return "".join(parts).strip()
-    return str(content or "").strip()
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:

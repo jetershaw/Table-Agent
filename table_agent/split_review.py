@@ -48,6 +48,11 @@ def review_split_candidates(
     else:
         warnings.append("max_split_iterations_reached")
 
+    original_cuts = [int(cut) for cut in proposed.get("cuts", [])]
+    if _has_tiny_chunks(int(image_size[1]), current_cuts):
+        warnings.append("review_cuts_rejected_tiny_chunks")
+        current_cuts = original_cuts
+
     boxes = _cuts_to_boxes(int(image_size[0]), int(image_size[1]), current_cuts)
     return {
         "image_path": str(image_path),
@@ -132,17 +137,34 @@ def _parse_review_json(content: str) -> dict[str, Any]:
 def _validate_cuts(cuts: Any, height: int, max_chunks: int) -> list[int]:
     if not isinstance(cuts, list):
         raise ValueError("cuts must be a list")
-    valid = []
+    candidates = []
     for cut in cuts:
         if isinstance(cut, bool):
             continue
         value = int(cut)
         if 0 < value < height:
-            valid.append(value)
-    valid = sorted(set(valid))
-    return valid[: max(0, max_chunks - 1)]
+            candidates.append(value)
+
+    min_chunk_height = max(96, height // max(max_chunks, 1))
+    valid = []
+    previous = 0
+    for value in sorted(set(candidates)):
+        if value - previous < min_chunk_height:
+            continue
+        if height - value < min_chunk_height:
+            continue
+        valid.append(value)
+        previous = value
+        if len(valid) >= max(0, max_chunks - 1):
+            break
+    return valid
 
 
 def _cuts_to_boxes(width: int, height: int, cuts: list[int]) -> list[list[int]]:
     bounds = [0] + sorted(cuts) + [height]
     return [[0, bounds[i], width, bounds[i + 1]] for i in range(len(bounds) - 1)]
+
+
+def _has_tiny_chunks(height: int, cuts: list[int], min_height: int = 160) -> bool:
+    bounds = [0] + sorted(cuts) + [height]
+    return any((bounds[i + 1] - bounds[i]) < min_height for i in range(len(bounds) - 1))

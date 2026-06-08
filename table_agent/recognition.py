@@ -6,17 +6,16 @@ import json
 from pathlib import Path
 from typing import Any
 
-from table_agent.baseline import extract_message_content, _write_json
+from table_agent.baseline import _write_json
 from table_agent.benchmark import iter_benchmark_records, resolve_image_path
-from table_agent.client import VisionClient
+from table_agent.mineru_client import MinerUTableClient
 from table_agent.config import AgentConfig
-from table_agent.smoke import MINERU_TABLE_PROMPT
 from table_agent.split_review import review_split_candidates
 from table_agent.splitter import propose_vertical_crops, save_crops
 
 
 def recognize_crop(
-    client: VisionClient,
+    client: MinerUTableClient,
     crop_path: str | Path,
     *,
     raw_path: str | Path,
@@ -27,9 +26,9 @@ def recognize_crop(
     for attempt in range(max_retries + 1):
         attempts = attempt + 1
         try:
-            raw = client.chat_with_image(crop_path, MINERU_TABLE_PROMPT)
+            raw = client.recognize_table(crop_path)
             _write_json(Path(raw_path), raw)
-            otsl = extract_message_content(raw)
+            otsl = str(raw.get("otsl", "") or "")
             return {
                 "status": "success" if otsl else "failed",
                 "otsl": otsl,
@@ -57,7 +56,7 @@ def run_crop_recognition(
 ) -> dict[str, Any]:
     raw_dir = Path(config.paths.raw_response_dir) / "crops"
     raw_dir.mkdir(parents=True, exist_ok=True)
-    client = VisionClient(config.mineru)
+    client = MinerUTableClient(config.mineru)
     results = []
 
     for record_index, record in iter_benchmark_records(
