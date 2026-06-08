@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import signal
+import multiprocessing as mp
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +33,6 @@ def run_end_to_end(
     baseline_raw_dir.mkdir(parents=True, exist_ok=True)
     crop_raw_dir.mkdir(parents=True, exist_ok=True)
 
-    mineru_client = MinerUTableClient(config.mineru, timeout=60)
     total = 0
     success = 0
     partial_success = 0
@@ -44,28 +43,14 @@ def run_end_to_end(
             config.paths.input_jsonl, start=start, end=end, limit=limit
         ):
             total += 1
-            row = dict(record)
-            try:
-                with _timeout(sample_timeout):
-                    image_path = resolve_image_path(record, config.paths.image_dir)
-                    row["baseline_parse_result"] = _run_baseline(
-                        mineru_client, image_path, baseline_raw_dir / f"{record_index:05d}.json"
-                    )
-                    metadata = _run_agent(config, mineru_client, image_path, record_index, crop_raw_dir)
-                    row["agent_metadata"] = metadata
-                    row["agent_parse_result"] = metadata.pop("agent_parse_result")
-                    status = row["agent_parse_result"].get("status", "failed")
-            except Exception as exc:
-                status = "failed"
-                row.setdefault(
-                    "baseline_parse_result",
-                    {"status": "failed", "otsl": "", "html": "", "raw_response": {}},
-                )
-                row["agent_parse_result"] = {"status": "failed", "otsl": "", "html": ""}
-                row["agent_metadata"] = {
-                    "warnings": [f"sample_failed: {type(exc).__name__}: {exc}"],
-                    "chunks": [],
-                }
+            row, status = _run_sample_with_timeout(
+                config,
+                record_index,
+                record,
+                baseline_raw_dir,
+                crop_raw_dir,
+                sample_timeout,
+            )
 
             if status == "success":
                 success += 1
@@ -84,6 +69,79 @@ def run_end_to_end(
         "failed": failed,
         "sample_timeout": sample_timeout,
     }
+
+
+def _run_sample_with_timeout(
+    config: AgentConfig,
+    record_index: int,
+    record: dict[str, Any],
+    baseline_raw_dir: Path,
+    crop_raw_dir: Path,
+    sample_timeout: int,
+) -> tuple[dict[str, Any], str]:
+    queue: mp.Queue = mp.Queue(maxsize=1)
+    process = mp.Process(
+        target=_run_sample_worker,
+        args=(config, record_index, record, baseline_raw_dir, crop_raw_dir, queue),
+    )
+    process.start()
+    process.join(sample_timeout)
+
+    if process.is_alive():
+        process.terminate()
+        process.join(5)
+        if process.is_alive():
+            process.kill()
+            process.join()
+        return _failed_sample_row(record, f"sample timed out after {sample_timeout}s"), "failed"
+
+    try:
+        return queue.get_nowait()
+    except Exception:
+        reason = f"sample worker exited with code {process.exitcode}"
+        return _failed_sample_row(record, reason), "failed"
+
+
+def _run_sample_worker(
+    config: AgentConfig,
+    record_index: int,
+    record: dict[str, Any],
+    baseline_raw_dir: Path,
+    crop_raw_dir: Path,
+    queue: mp.Queue,
+) -> None:
+    row = dict(record)
+    try:
+        mineru_client = MinerUTableClient(config.mineru, timeout=0)
+        image_path = resolve_image_path(record, config.paths.image_dir)
+        row["baseline_parse_result"] = _run_baseline(
+            mineru_client, image_path, baseline_raw_dir / f"{record_index:05d}.json"
+        )
+        metadata = _run_agent(config, mineru_client, image_path, record_index, crop_raw_dir)
+        row["agent_metadata"] = metadata
+        row["agent_parse_result"] = metadata.pop("agent_parse_result")
+        status = row["agent_parse_result"].get("status", "failed")
+    except Exception as exc:
+        row, status = _failed_sample_row(
+            record, f"{type(exc).__name__}: {exc}", row=row
+        ), "failed"
+    queue.put((row, status))
+
+
+def _failed_sample_row(
+    record: dict[str, Any], reason: str, *, row: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    output = dict(record) if row is None else row
+    output.setdefault(
+        "baseline_parse_result",
+        {"status": "failed", "otsl": "", "html": "", "raw_response": {}},
+    )
+    output["agent_parse_result"] = {"status": "failed", "otsl": "", "html": ""}
+    output["agent_metadata"] = {
+        "warnings": [f"sample_failed: {reason}"],
+        "chunks": [],
+    }
+    return output
 
 
 def _run_baseline(client: MinerUTableClient, image_path: Path, raw_path: Path) -> dict[str, Any]:
@@ -154,22 +212,3 @@ def _sample_status(chunks: list[dict[str, Any]]) -> str:
     if any(status == "success" for status in statuses):
         return "partial_success"
     return "failed"
-
-
-class _timeout:
-    def __init__(self, seconds: int) -> None:
-        self.seconds = seconds
-        self.previous_handler = None
-
-    def __enter__(self) -> None:
-        self.previous_handler = signal.signal(signal.SIGALRM, self._handle_timeout)
-        signal.alarm(self.seconds)
-
-    def __exit__(self, exc_type, exc, tb) -> None:
-        signal.alarm(0)
-        if self.previous_handler is not None:
-            signal.signal(signal.SIGALRM, self.previous_handler)
-
-    @staticmethod
-    def _handle_timeout(signum, frame) -> None:
-        raise TimeoutError("sample timed out")

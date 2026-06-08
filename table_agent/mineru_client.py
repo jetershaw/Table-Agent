@@ -93,10 +93,14 @@ class _timeout:
         self.previous_handler = None
 
     def __enter__(self) -> None:
+        if self.seconds <= 0:
+            return
         self.previous_handler = signal.signal(signal.SIGALRM, self._handle_timeout)
         signal.alarm(self.seconds)
 
     def __exit__(self, exc_type, exc, tb) -> None:
+        if self.seconds <= 0:
+            return
         signal.alarm(0)
         if self.previous_handler is not None:
             signal.signal(signal.SIGALRM, self.previous_handler)
