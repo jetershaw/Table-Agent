@@ -19,6 +19,10 @@ full-image MinerU baseline.
 python -m table_agent.cli config --config configs/default.yaml
 ```
 
+## Final Report
+
+The staged acceptance work and the 50-sample evaluation result are summarized in
+`FINAL_REPORT.md`.
 
 ## 50-Sample Evaluation
 

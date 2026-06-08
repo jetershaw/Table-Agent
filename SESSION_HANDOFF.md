@@ -30,6 +30,7 @@ Repo: `/mnt/shared-storage-user/mineru2-shared/xiaojutao/Table-Agent`
 - Item 7, OTSL merge and agent parse result: `4e38051 Add OTSL merge and agent parse result`
 - Item 8, end-to-end smoke runner: `4e3309e Add end-to-end smoke runner`
 - Item 8 hardening, subprocess sample timeout: `52fd969 Harden end-to-end sample timeouts`
+- Item 9, full evaluation summary: `f441b26 Add full evaluation summary`
 
 ## Item 9 Status
 
@@ -92,14 +93,10 @@ python -m table_agent.cli summarize \
   --output-json outputs/e2e_50_eval.summary.json
 ```
 
-## Current Code Changes Pending Commit
+## Final Acceptance Status
 
-These changes belong to Item 9 and should be committed after final verification:
-
-- `table_agent/evaluation.py`: summary helper for scored baseline/agent outputs.
-- `table_agent/cli.py`: adds `summarize` CLI command.
-- `README.md`: documents the full evaluation commands and notes the benchmark currently has 48 records.
-- `SESSION_HANDOFF.md`: this handoff note.
+- Staged acceptance items 1-9 are complete and committed.
+- `FINAL_REPORT.md` records the final result, reproduction commands, and the conclusion that this run did not improve TEDS over the full-image MinerU baseline.
 
 ## Important Run Artifacts
 
@@ -109,7 +106,6 @@ Avoid using `outputs/e2e_50.jsonl` as the final result from this session. Earlie
 
 ## Next Todo
 
-1. Run final code checks after this file is created.
-2. Commit Item 9 code/docs with a message like `Add full evaluation summary`.
-3. If better service availability is needed, rerun Item 9 with a longer `--sample-timeout` and a fresh output filename.
-4. Consider adding resume/append mode later, but do not do that before committing Item 9 unless explicitly requested.
+1. Commit the final report/documentation update.
+2. If better service availability is needed, rerun Item 9 with a longer `--sample-timeout` and a fresh output filename.
+3. Consider adding resume/append mode later, but treat that as a separate post-acceptance enhancement.
