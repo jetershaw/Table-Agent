@@ -9,6 +9,7 @@ from pathlib import Path
 from table_agent.baseline import run_baseline_collection
 from table_agent.config import load_config
 from table_agent.smoke import run_vision_smoke
+from table_agent.splitter import run_split_generation
 
 
 DEFAULT_CONFIG = Path("configs/default.yaml")
@@ -60,6 +61,19 @@ def main() -> int:
     baseline_parser.add_argument("--limit", type=int, default=None)
     baseline_parser.add_argument("--output-jsonl", default=None)
 
+    split_parser = subparsers.add_parser(
+        "split", help="Generate vertical split candidates and crops."
+    )
+    split_parser.add_argument(
+        "--config",
+        default=str(DEFAULT_CONFIG),
+        help=f"Path to config YAML. Defaults to {DEFAULT_CONFIG}.",
+    )
+    split_parser.add_argument("--start", type=int, default=0)
+    split_parser.add_argument("--end", type=int, default=None)
+    split_parser.add_argument("--limit", type=int, default=None)
+    split_parser.add_argument("--output-json", default=None)
+
     args = parser.parse_args()
     if args.command == "config":
         config = load_config(args.config)
@@ -78,6 +92,17 @@ def main() -> int:
             end=args.end,
             limit=args.limit,
             output_jsonl=args.output_jsonl,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "split":
+        config = load_config(args.config)
+        result = run_split_generation(
+            config,
+            start=args.start,
+            end=args.end,
+            limit=args.limit,
+            output_json=args.output_json,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
