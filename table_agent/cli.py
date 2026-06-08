@@ -8,6 +8,7 @@ from pathlib import Path
 
 from table_agent.baseline import run_baseline_collection
 from table_agent.config import load_config
+from table_agent.evaluation import summarize_evaluation
 from table_agent.merge import merge_crop_recognition_output
 from table_agent.recognition import run_crop_recognition
 from table_agent.runner import run_end_to_end
@@ -124,6 +125,15 @@ def main() -> int:
     run_parser.add_argument("--output-jsonl", default=None)
     run_parser.add_argument("--sample-timeout", type=int, default=120)
 
+    summary_parser = subparsers.add_parser(
+        "summarize", help="Summarize baseline and agent scored JSONL outputs."
+    )
+    summary_parser.add_argument("--run-jsonl", required=True)
+    summary_parser.add_argument("--baseline-scored-jsonl", required=True)
+    summary_parser.add_argument("--agent-scored-jsonl", required=True)
+    summary_parser.add_argument("--output-json", required=True)
+    summary_parser.add_argument("--top-k", type=int, default=5)
+
     args = parser.parse_args()
     if args.command == "config":
         config = load_config(args.config)
@@ -191,6 +201,16 @@ def main() -> int:
             limit=args.limit,
             output_jsonl=args.output_jsonl,
             sample_timeout=args.sample_timeout,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "summarize":
+        result = summarize_evaluation(
+            args.run_jsonl,
+            args.baseline_scored_jsonl,
+            args.agent_scored_jsonl,
+            args.output_json,
+            top_k=args.top_k,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0

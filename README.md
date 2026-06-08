@@ -19,3 +19,34 @@ full-image MinerU baseline.
 python -m table_agent.cli config --config configs/default.yaml
 ```
 
+
+## 50-Sample Evaluation
+
+The current large-table benchmark file contains 48 non-empty records. The
+`--limit 50` command below therefore runs the full available set.
+
+```bash
+conda run -n mineru python -m table_agent.cli run \
+  --config configs/default.yaml \
+  --limit 50 \
+  --output-jsonl outputs/e2e_50_eval.jsonl \
+  --sample-timeout 60
+
+python /mnt/shared-storage-user/mineru2-shared/xiaojutao/utils/score_teds_jsonl.py \
+  --input-jsonl outputs/e2e_50_eval.jsonl \
+  --output-jsonl outputs/e2e_50_eval.baseline.scored.jsonl \
+  --pred-field baseline_parse_result \
+  --gt-field solution
+
+python /mnt/shared-storage-user/mineru2-shared/xiaojutao/utils/score_teds_jsonl.py \
+  --input-jsonl outputs/e2e_50_eval.jsonl \
+  --output-jsonl outputs/e2e_50_eval.agent.scored.jsonl \
+  --pred-field agent_parse_result \
+  --gt-field solution
+
+python -m table_agent.cli summarize \
+  --run-jsonl outputs/e2e_50_eval.jsonl \
+  --baseline-scored-jsonl outputs/e2e_50_eval.baseline.scored.jsonl \
+  --agent-scored-jsonl outputs/e2e_50_eval.agent.scored.jsonl \
+  --output-json outputs/e2e_50_eval.summary.json
+```
