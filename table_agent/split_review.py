@@ -99,10 +99,14 @@ def run_split_review(
 def _build_review_prompt(image_size: list[int], cuts: list[int], max_chunks: int) -> str:
     width, height = image_size
     return (
-        "You are reviewing horizontal cut positions for vertically splitting a table image. "
-        "Check whether each y coordinate cuts through text, rows, cells, or obvious merged cells. "
+        "You are reviewing horizontal cut positions for vertically splitting a full-width table image. "
+        "The goal is better table recognition, so prefer fewer, safer chunks over aggressive splitting. "
+        "A safe cut should lie in a clear horizontal whitespace band between two table rows and must not cross text, borders, formulas, row content, or merged cells. "
+        "If the proposed cuts already look safe, return accepted=true and the same cuts. "
+        "If a cut is unsafe, move it only to the nearest visually safe whitespace band; if no safe nearby band is visible, remove that cut. "
+        "Do not add new cuts unless the table has a very clear large whitespace band. "
         'Return only JSON with this schema: {"accepted": true/false, "cuts": [integer_y_values], "reason": "short"}. '
-        "Keep cuts sorted, strictly between 0 and image height, and keep chunk count <= "
+        "Keep cuts sorted, unique, strictly between 0 and image height, and keep chunk count <= "
         f"{max_chunks}. Image size is width={width}, height={height}. Proposed cuts: {cuts}."
     )
 
