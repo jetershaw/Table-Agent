@@ -8,6 +8,7 @@ from pathlib import Path
 
 from table_agent.baseline import run_baseline_collection
 from table_agent.config import load_config
+from table_agent.recognition import run_crop_recognition
 from table_agent.smoke import run_vision_smoke
 from table_agent.splitter import run_split_generation
 from table_agent.split_review import run_split_review
@@ -88,6 +89,19 @@ def main() -> int:
     review_parser.add_argument("--limit", type=int, default=None)
     review_parser.add_argument("--output-json", default=None)
 
+    crop_parser = subparsers.add_parser(
+        "crop-recognize", help="Run MinerU recognition on reviewed crops."
+    )
+    crop_parser.add_argument(
+        "--config",
+        default=str(DEFAULT_CONFIG),
+        help=f"Path to config YAML. Defaults to {DEFAULT_CONFIG}.",
+    )
+    crop_parser.add_argument("--start", type=int, default=0)
+    crop_parser.add_argument("--end", type=int, default=None)
+    crop_parser.add_argument("--limit", type=int, default=None)
+    crop_parser.add_argument("--output-json", default=None)
+
     args = parser.parse_args()
     if args.command == "config":
         config = load_config(args.config)
@@ -123,6 +137,17 @@ def main() -> int:
     if args.command == "split-review":
         config = load_config(args.config)
         result = run_split_review(
+            config,
+            start=args.start,
+            end=args.end,
+            limit=args.limit,
+            output_json=args.output_json,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "crop-recognize":
+        config = load_config(args.config)
+        result = run_crop_recognition(
             config,
             start=args.start,
             end=args.end,
