@@ -16,7 +16,9 @@ class VisionClient:
         self.service = service
         self.timeout = timeout
 
-    def chat_with_image(self, image_path: str | Path, prompt: str) -> dict[str, Any]:
+    def chat_with_image(
+        self, image_path: str | Path, prompt: str, *, max_tokens: int = 512
+    ) -> dict[str, Any]:
         payload = {
             "model": self.service.model,
             "messages": [
@@ -33,7 +35,7 @@ class VisionClient:
             ],
             "stream": False,
             "temperature": 0,
-            "max_tokens": 512,
+            "max_tokens": max_tokens,
             "chat_template_kwargs": {"enable_thinking": False},
         }
         response = requests.post(
