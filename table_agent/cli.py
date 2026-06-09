@@ -8,6 +8,7 @@ from pathlib import Path
 
 from table_agent.baseline import run_baseline_collection
 from table_agent.config import load_config
+from table_agent.diagnostics import diagnose_run
 from table_agent.evaluation import summarize_evaluation
 from table_agent.merge import merge_crop_recognition_output
 from table_agent.recognition import run_crop_recognition
@@ -134,6 +135,15 @@ def main() -> int:
     summary_parser.add_argument("--output-json", required=True)
     summary_parser.add_argument("--top-k", type=int, default=5)
 
+    diagnose_parser = subparsers.add_parser(
+        "diagnose", help="Build offline case-level diagnostics for a scored run."
+    )
+    diagnose_parser.add_argument("--run-jsonl", required=True)
+    diagnose_parser.add_argument("--baseline-scored-jsonl", required=True)
+    diagnose_parser.add_argument("--agent-scored-jsonl", required=True)
+    diagnose_parser.add_argument("--output-json", required=True)
+    diagnose_parser.add_argument("--top-k", type=int, default=8)
+
     args = parser.parse_args()
     if args.command == "config":
         config = load_config(args.config)
@@ -206,6 +216,16 @@ def main() -> int:
         return 0
     if args.command == "summarize":
         result = summarize_evaluation(
+            args.run_jsonl,
+            args.baseline_scored_jsonl,
+            args.agent_scored_jsonl,
+            args.output_json,
+            top_k=args.top_k,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "diagnose":
+        result = diagnose_run(
             args.run_jsonl,
             args.baseline_scored_jsonl,
             args.agent_scored_jsonl,
