@@ -44,6 +44,23 @@ def split_otsl_rows(text: str) -> list[str]:
     return rows
 
 
+def repair_stray_otsl_angles(text: str) -> str:
+    if not text or not looks_like_otsl(text):
+        return text
+    pieces: list[str] = []
+    index = 0
+    while index < len(text):
+        if text[index] == "<" and not any(
+            text.startswith(token, index) for token in OTSL_TOKENS
+        ):
+            pieces.append("&lt;")
+            index += 1
+            continue
+        pieces.append(text[index])
+        index += 1
+    return "".join(pieces)
+
+
 def validate_otsl_tokens(text: str) -> list[str]:
     warnings: list[str] = []
     if not text or not looks_like_otsl(text):
@@ -84,6 +101,10 @@ def merge_vertical_otsl(crop_otsls: list[str]) -> dict[str, object]:
             col_counts.append(0)
             continue
         any_otsl = any_otsl or looks_like_otsl(text)
+        repaired = repair_stray_otsl_angles(text)
+        if repaired != text:
+            warnings.append(f"repaired_stray_otsl_angle:{index}")
+            text = repaired
         warnings.extend(validate_otsl_tokens(text))
         crop_rows = split_otsl_rows(text)
         rows.extend(crop_rows)
