@@ -10,6 +10,7 @@ import yaml
 
 
 ALLOWED_IMAGE_INPUT_MODES = {"base64", "file_url", "path"}
+ALLOWED_SPLIT_REVIEW_POLICIES = {"conservative", "aggressive"}
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ class AgentConfig:
     max_split_iterations: int
     max_recognition_retries: int
     max_chunks: int
+    split_review_policy: str
     paths: PathConfig
 
     def to_dict(self) -> dict[str, Any]:
@@ -61,6 +63,11 @@ def _parse_config(raw: dict[str, Any]) -> AgentConfig:
         allowed = ", ".join(sorted(ALLOWED_IMAGE_INPUT_MODES))
         raise ValueError(f"image_input_mode must be one of: {allowed}")
 
+    split_review_policy = str(raw.get("split_review_policy", "conservative") or "").strip()
+    if split_review_policy not in ALLOWED_SPLIT_REVIEW_POLICIES:
+        allowed = ", ".join(sorted(ALLOWED_SPLIT_REVIEW_POLICIES))
+        raise ValueError(f"split_review_policy must be one of: {allowed}")
+
     return AgentConfig(
         mineru=mineru,
         qwen=qwen,
@@ -70,6 +77,7 @@ def _parse_config(raw: dict[str, Any]) -> AgentConfig:
             raw, "max_recognition_retries"
         ),
         max_chunks=_required_positive_int(raw, "max_chunks"),
+        split_review_policy=split_review_policy,
         paths=paths,
     )
 

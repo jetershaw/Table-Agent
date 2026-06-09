@@ -28,7 +28,9 @@ def review_split_candidates(
 
     for iteration in range(config.max_split_iterations):
         iterations = iteration + 1
-        prompt = _build_review_prompt(image_size, current_cuts, config.max_chunks)
+        prompt = _build_review_prompt(
+            image_size, current_cuts, config.max_chunks, config.split_review_policy
+        )
         try:
             raw = client.chat_with_image(image_path, prompt, max_tokens=384)
             raw_responses.append(raw)
@@ -103,14 +105,26 @@ def run_split_review(
     return {"output_json": str(output_path), "total": len(results)}
 
 
-def _build_review_prompt(image_size: list[int], cuts: list[int], max_chunks: int) -> str:
+def _build_review_prompt(
+    image_size: list[int], cuts: list[int], max_chunks: int, policy: str
+) -> str:
     width, height = image_size
+    if policy == "aggressive":
+        policy_text = (
+            "Prefer splitting high-complexity or visually long tables when at least one clear whitespace band is visible. "
+            "If the proposed cuts are safe, keep them. If no cuts are proposed but the image has a clear major section break, add one safe cut near that break. "
+            "Still return no split for short tables without safe whitespace or for tables where all plausible cuts cross content. "
+        )
+    else:
+        policy_text = (
+            "Prefer no split for short, simple, or risky tables where cutting could remove context. "
+            "Choose split only when the table is visually long or complex enough that chunk recognition is likely to help, and when each cut lies in a clear horizontal whitespace band between rows. "
+        )
     return (
         "You are deciding whether a full-width table image should be vertically split before table recognition. "
         "Use only the image and the proposed horizontal cuts; do not assume access to ground truth or scoring. "
-        "Prefer no split for short, simple, or risky tables where cutting could remove context. "
-        "Choose split only when the table is visually long or complex enough that chunk recognition is likely to help, and when each cut lies in a clear horizontal whitespace band between rows. "
-        "A safe cut must not cross text, borders, formulas, row content, headers, footnotes, or merged cells. "
+        + policy_text
+        + "A safe cut must not cross text, borders, formulas, row content, headers, footnotes, or merged cells. "
         "If a proposed cut is unsafe, move it only to the nearest visually safe whitespace band; if no safe nearby band is visible, remove that cut. "
         "Do not add new cuts unless the table has a very clear large whitespace band and the resulting chunk count stays within the limit. "
         'Return only JSON with this schema: {"accepted": true/false, "should_split": true/false, "complexity": "low/medium/high", "risk_factors": ["short strings"], "cuts": [integer_y_values], "reason": "short"}. '
