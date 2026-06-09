@@ -1,111 +1,71 @@
 # Table Agent Session Handoff
 
-Date: 2026-06-08
+Date: 2026-06-09
 Workspace: `/mnt/shared-storage-user/mineru2-shared/xiaojutao`
 Repo: `/mnt/shared-storage-user/mineru2-shared/xiaojutao/Table-Agent`
 
-## Key Decisions
+## Current Status
 
-- MinerU table recognition must use `mineru_vl_utils.MinerUClient`, matching `Agent_test/TableAgent/tools/ocr_table.py`; do not use raw OpenAI HTTP for MinerU table recognition.
-- Qwen split review still uses the OpenAI-compatible HTTP client.
-- MinerU endpoint in config remains `http://100.103.11.28:20000/v1/chat/completions`, but `MinerUTableClient` converts it to server URL `http://100.103.11.28:20000/` for `mineru_vl_utils`.
-- Run MinerU-related recognition in `conda run -n mineru ...`.
+- Staged acceptance items in `SPEC.md` / `SPEC.zh.md` are complete.
+- Latest useful evaluation is documented in `NEW_MINERU_EVAL_NOTES.md`.
+- The faster MinerU service was tested from the worker where it listens on `127.0.0.1:8000`.
+- The old configured endpoint `http://100.103.11.28:20000/v1/chat/completions` did not hit that faster local service during the rerun.
+
+## Important Decisions
+
+- MinerU recognition uses `mineru_vl_utils.MinerUClient`; do not replace it with raw OpenAI HTTP unless intentionally changing the architecture.
+- Qwen split review uses the OpenAI-compatible HTTP client.
+- MinerU-related runs should use `conda run -n mineru ...`.
 - TEDS scoring currently works in the base Python environment because the `mineru` env lacks `lxml`.
-- End-to-end runs use per-sample subprocess isolation. If a sample hangs in MinerU or network code, the parent process terminates that sample worker and writes a failed row instead of blocking the batch.
+- End-to-end workers now write large rows through `raw_responses/e2e_rows/` and send only row paths through multiprocessing. This avoids hangs when returning large JSON rows.
 
-## Services
+## Key Commits
 
-- MinerU-Pro: `100.103.11.28:20000`
-- Qwen35-397B: `10.102.214.86:20000`
-- Both service ports are `20000`.
+- `76988fe` project skeleton and config CLI.
+- `fe1aa55` vision client smoke test.
+- `7b4f5f0` full-image baseline collection.
+- `6233b57` vertical split candidate generation.
+- `fd68f4e` Qwen split review iteration.
+- `f6a6799` crop recognition workflow.
+- `4e38051` OTSL merge and agent parse result.
+- `4e3309e` end-to-end smoke runner.
+- `52fd969` subprocess sample timeout hardening.
+- `f441b26` full evaluation summary tooling.
+- `bf0705c` conservative split-review prompt tuning.
+- `192ac0c` row-file worker result handoff fix.
+- `7e39a1b` new MinerU evaluation notes.
 
-## Completed Acceptance Items And Commits
+## Latest Results
 
-- Item 1, project skeleton/config CLI: `76988fe Add project skeleton and config CLI`
-- Item 2, vision client smoke: `fe1aa55 Add vision client smoke test`
-- Item 3, full-image baseline collection: `7b4f5f0 Add full-image baseline collection`
-- Item 4, vertical split candidate generation: `6233b57 Add vertical split candidate generation`
-- Item 5, Qwen split review iteration: `fd68f4e Add Qwen split review iteration`
-- Item 6, crop recognition workflow: `f6a6799 Add crop recognition workflow`
-- Item 7, OTSL merge and agent parse result: `4e38051 Add OTSL merge and agent parse result`
-- Item 8, end-to-end smoke runner: `4e3309e Add end-to-end smoke runner`
-- Item 8 hardening, subprocess sample timeout: `52fd969 Harden end-to-end sample timeouts`
-- Item 9, full evaluation summary: `f441b26 Add full evaluation summary`
+Clean 48-row rerun artifacts:
 
-## Item 9 Status
+- `outputs/e2e_newmineru_local_48_combined.jsonl`
+- `outputs/e2e_newmineru_local_48_combined.baseline.scored.jsonl`
+- `outputs/e2e_newmineru_local_48_combined.agent.scored.jsonl`
+- `outputs/e2e_newmineru_local_48_combined.summary.json`
 
-Item 9 has now been run against the available large-table benchmark. The spec says 50 samples, but the configured benchmark file contains 48 non-empty records:
+Summary:
 
-```bash
-wc -l /mnt/shared-storage-user/mineru2-shared/xiaojutao/bench/fine_grained_bench/fine_grained_bench-large_table.jsonl
-# 48
+```text
+count: 48
+success_count: 48
+partial_success_count: 0
+failure_count: 0
+baseline_avg_teds: 0.8634187595356039
+agent_avg_teds: 0.8926355322939662
+absolute_improvement: 0.02921677275836232
+relative_improvement: 0.03383847343562094
+avg_chunk_count: 1.4583333333333333
+avg_split_iterations: 1.0
 ```
 
-Clean Item 9 outputs:
+Interpretation: with the faster local MinerU service and the row-file runner fix,
+Table Agent improves average TEDS on the available 48-record large-table benchmark
+by about 0.029 absolute, or 3.38% relative. Some regressions remain, especially
+where split chunks have inconsistent column counts.
 
-- `outputs/e2e_50_eval.jsonl`: 48 run rows
-- `outputs/e2e_50_eval.baseline.scored.jsonl`: 1 summary row + 48 scored rows
-- `outputs/e2e_50_eval.agent.scored.jsonl`: 1 summary row + 48 scored rows
-- `outputs/e2e_50_eval.summary.json`: aggregate summary
+## Next Useful Work
 
-Summary values from `outputs/e2e_50_eval.summary.json`:
-
-- count: 48
-- baseline average TEDS: 0.059270436493675326
-- agent average TEDS: 0.059270436493675326
-- absolute improvement: 0.0
-- relative improvement: 0.0
-- success count: 3
-- partial success count: 0
-- failure count: 45
-- average chunk count: 0.0625
-- average split iterations: 0.1875
-
-Interpretation: during this run, MinerU service calls mostly timed out. The experiment pipeline is reproducible and diagnosable, but the measured TEDS is dominated by service timeouts rather than algorithm quality.
-
-## Reproduction Commands
-
-```bash
-cd /mnt/shared-storage-user/mineru2-shared/xiaojutao/Table-Agent
-
-conda run -n mineru python -m table_agent.cli run \
-  --config configs/default.yaml \
-  --limit 50 \
-  --output-jsonl outputs/e2e_50_eval.jsonl \
-  --sample-timeout 60
-
-python /mnt/shared-storage-user/mineru2-shared/xiaojutao/utils/score_teds_jsonl.py \
-  --input-jsonl outputs/e2e_50_eval.jsonl \
-  --output-jsonl outputs/e2e_50_eval.baseline.scored.jsonl \
-  --pred-field baseline_parse_result \
-  --gt-field solution
-
-python /mnt/shared-storage-user/mineru2-shared/xiaojutao/utils/score_teds_jsonl.py \
-  --input-jsonl outputs/e2e_50_eval.jsonl \
-  --output-jsonl outputs/e2e_50_eval.agent.scored.jsonl \
-  --pred-field agent_parse_result \
-  --gt-field solution
-
-python -m table_agent.cli summarize \
-  --run-jsonl outputs/e2e_50_eval.jsonl \
-  --baseline-scored-jsonl outputs/e2e_50_eval.baseline.scored.jsonl \
-  --agent-scored-jsonl outputs/e2e_50_eval.agent.scored.jsonl \
-  --output-json outputs/e2e_50_eval.summary.json
-```
-
-## Final Acceptance Status
-
-- Staged acceptance items 1-9 are complete and committed.
-- `FINAL_REPORT.md` records the final result, reproduction commands, and the conclusion that this run did not improve TEDS over the full-image MinerU baseline.
-
-## Important Run Artifacts
-
-Ignored artifacts under `outputs/`, `raw_responses/`, and `crops/` are intentionally not committed.
-
-Avoid using `outputs/e2e_50.jsonl` as the final result from this session. Earlier overlapping runs wrote to that file concurrently, leaving partial/corrupted lines. The clean final run is `outputs/e2e_50_eval.jsonl`.
-
-## Next Todo
-
-1. Commit the final report/documentation update.
-2. If better service availability is needed, rerun Item 9 with a longer `--sample-timeout` and a fresh output filename.
-3. Consider adding resume/append mode later, but treat that as a separate post-acceptance enhancement.
+1. Decide whether to make the faster MinerU endpoint configurable as a checked-in config variant, or keep it as an operator-local temporary config.
+2. Investigate regressions listed in `NEW_MINERU_EVAL_NOTES.md`, especially column-count inconsistency cases.
+3. Consider a fallback policy: if review produces one chunk, reuse baseline result instead of rerunning the same image through the agent path.

@@ -9,9 +9,15 @@ full-image MinerU baseline.
 - `configs/`: YAML configuration.
 - `table_agent/`: Python package for config, clients, splitting, recognition,
   merging, and batch execution.
-- `outputs/`: JSONL outputs and summaries.
-- `raw_responses/`: saved model responses for debugging.
-- `crops/`: generated crop images.
+- `outputs/`: ignored JSONL outputs and summaries.
+- `raw_responses/`: ignored saved model responses and worker row files for debugging.
+- `crops/`: ignored generated crop images.
+
+## Important Docs
+
+- `SPEC.md` / `SPEC.zh.md`: original staged acceptance spec.
+- `NEW_MINERU_EVAL_NOTES.md`: latest reliable evaluation using the faster local MinerU service.
+- `SESSION_HANDOFF.md`: current handoff summary for the next work session.
 
 ## Config Check
 
@@ -19,38 +25,19 @@ full-image MinerU baseline.
 python -m table_agent.cli config --config configs/default.yaml
 ```
 
-## Final Report
+## Latest Evaluation
 
-The staged acceptance work and the 50-sample evaluation result are summarized in
-`FINAL_REPORT.md`.
+The latest useful evaluation used a faster MinerU service reachable from its
+worker at `http://127.0.0.1:8000/v1/chat/completions` via a temporary config.
+See `NEW_MINERU_EVAL_NOTES.md` for exact commands, artifacts, and interpretation.
 
-## 50-Sample Evaluation
+Full 48-record result from that rerun:
 
-The current large-table benchmark file contains 48 non-empty records. The
-`--limit 50` command below therefore runs the full available set.
-
-```bash
-conda run -n mineru python -m table_agent.cli run \
-  --config configs/default.yaml \
-  --limit 50 \
-  --output-jsonl outputs/e2e_50_eval.jsonl \
-  --sample-timeout 60
-
-python /mnt/shared-storage-user/mineru2-shared/xiaojutao/utils/score_teds_jsonl.py \
-  --input-jsonl outputs/e2e_50_eval.jsonl \
-  --output-jsonl outputs/e2e_50_eval.baseline.scored.jsonl \
-  --pred-field baseline_parse_result \
-  --gt-field solution
-
-python /mnt/shared-storage-user/mineru2-shared/xiaojutao/utils/score_teds_jsonl.py \
-  --input-jsonl outputs/e2e_50_eval.jsonl \
-  --output-jsonl outputs/e2e_50_eval.agent.scored.jsonl \
-  --pred-field agent_parse_result \
-  --gt-field solution
-
-python -m table_agent.cli summarize \
-  --run-jsonl outputs/e2e_50_eval.jsonl \
-  --baseline-scored-jsonl outputs/e2e_50_eval.baseline.scored.jsonl \
-  --agent-scored-jsonl outputs/e2e_50_eval.agent.scored.jsonl \
-  --output-json outputs/e2e_50_eval.summary.json
+```text
+success_count: 48
+failure_count: 0
+baseline_avg_teds: 0.8634187595356039
+agent_avg_teds: 0.8926355322939662
+absolute_improvement: 0.02921677275836232
+relative_improvement: 0.03383847343562094
 ```
