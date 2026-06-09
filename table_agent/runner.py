@@ -30,8 +30,10 @@ def run_end_to_end(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     baseline_raw_dir = Path(config.paths.raw_response_dir) / "e2e_baseline"
     crop_raw_dir = Path(config.paths.raw_response_dir) / "e2e_crops"
+    row_dir = Path(config.paths.raw_response_dir) / "e2e_rows"
     baseline_raw_dir.mkdir(parents=True, exist_ok=True)
     crop_raw_dir.mkdir(parents=True, exist_ok=True)
+    row_dir.mkdir(parents=True, exist_ok=True)
 
     total = 0
     success = 0
@@ -49,6 +51,7 @@ def run_end_to_end(
                 record,
                 baseline_raw_dir,
                 crop_raw_dir,
+                row_dir,
                 sample_timeout,
             )
 
@@ -77,12 +80,14 @@ def _run_sample_with_timeout(
     record: dict[str, Any],
     baseline_raw_dir: Path,
     crop_raw_dir: Path,
+    row_dir: Path,
     sample_timeout: int,
 ) -> tuple[dict[str, Any], str]:
-    queue: mp.Queue = mp.Queue(maxsize=1)
+    queue: mp.SimpleQueue = mp.SimpleQueue()
+    row_path = row_dir / f"{record_index:05d}.json"
     process = mp.Process(
         target=_run_sample_worker,
-        args=(config, record_index, record, baseline_raw_dir, crop_raw_dir, queue),
+        args=(config, record_index, record, baseline_raw_dir, crop_raw_dir, row_path, queue),
     )
     process.start()
     process.join(sample_timeout)
@@ -96,7 +101,11 @@ def _run_sample_with_timeout(
         return _failed_sample_row(record, f"sample timed out after {sample_timeout}s"), "failed"
 
     try:
-        return queue.get_nowait()
+        message = queue.get()
+        status = str(message.get("status", "failed"))
+        output_path = Path(message["row_path"])
+        with output_path.open("r", encoding="utf-8") as f:
+            return json.load(f), status
     except Exception:
         reason = f"sample worker exited with code {process.exitcode}"
         return _failed_sample_row(record, reason), "failed"
@@ -108,7 +117,8 @@ def _run_sample_worker(
     record: dict[str, Any],
     baseline_raw_dir: Path,
     crop_raw_dir: Path,
-    queue: mp.Queue,
+    row_path: Path,
+    queue: mp.SimpleQueue,
 ) -> None:
     row = dict(record)
     try:
@@ -125,7 +135,11 @@ def _run_sample_worker(
         row, status = _failed_sample_row(
             record, f"{type(exc).__name__}: {exc}", row=row
         ), "failed"
-    queue.put((row, status))
+    row_path.parent.mkdir(parents=True, exist_ok=True)
+    with row_path.open("w", encoding="utf-8") as f:
+        json.dump(row, f, ensure_ascii=False)
+        f.write("\n")
+    queue.put({"row_path": str(row_path), "status": status})
 
 
 def _failed_sample_row(
