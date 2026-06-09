@@ -205,6 +205,7 @@ def _run_agent(
     return {
         "image_path": str(image_path),
         "image_size": reviewed.get("image_size", proposed.get("image_size", [])),
+        "split_decision": reviewed.get("split_decision", {}),
         "split_iterations": reviewed.get("split_iterations", 0),
         "max_split_iterations": config.max_split_iterations,
         "max_recognition_retries": config.max_recognition_retries,

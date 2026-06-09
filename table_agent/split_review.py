@@ -23,19 +23,24 @@ def review_split_candidates(
     image_size = proposed.get("image_size", [0, 0])
     iterations = 0
     raw_responses = []
+    split_decision = _default_split_decision(current_cuts)
     client = VisionClient(config.qwen)
 
     for iteration in range(config.max_split_iterations):
         iterations = iteration + 1
         prompt = _build_review_prompt(image_size, current_cuts, config.max_chunks)
         try:
-            raw = client.chat_with_image(image_path, prompt, max_tokens=256)
+            raw = client.chat_with_image(image_path, prompt, max_tokens=384)
             raw_responses.append(raw)
             content = _extract_content(raw)
             parsed = _parse_review_json(content)
             revised = _validate_cuts(
                 parsed.get("cuts", current_cuts), int(image_size[1]), config.max_chunks
             )
+            split_decision = _normalize_split_decision(parsed, revised)
+            if not split_decision["should_split"]:
+                current_cuts = []
+                break
             accepted = bool(parsed.get("accepted", revised == current_cuts))
             if revised != current_cuts:
                 current_cuts = revised
@@ -52,6 +57,7 @@ def review_split_candidates(
     if _has_tiny_chunks(int(image_size[1]), current_cuts):
         warnings.append("review_cuts_rejected_tiny_chunks")
         current_cuts = original_cuts
+        split_decision = _default_split_decision(current_cuts)
 
     boxes = _cuts_to_boxes(int(image_size[0]), int(image_size[1]), current_cuts)
     return {
@@ -60,6 +66,7 @@ def review_split_candidates(
         "original_cuts": proposed.get("cuts", []),
         "cuts": current_cuts,
         "boxes": boxes,
+        "split_decision": split_decision,
         "split_iterations": iterations,
         "max_split_iterations": config.max_split_iterations,
         "warnings": warnings,
@@ -99,13 +106,15 @@ def run_split_review(
 def _build_review_prompt(image_size: list[int], cuts: list[int], max_chunks: int) -> str:
     width, height = image_size
     return (
-        "You are reviewing horizontal cut positions for vertically splitting a full-width table image. "
-        "The goal is better table recognition, so prefer fewer, safer chunks over aggressive splitting. "
-        "A safe cut should lie in a clear horizontal whitespace band between two table rows and must not cross text, borders, formulas, row content, or merged cells. "
-        "If the proposed cuts already look safe, return accepted=true and the same cuts. "
-        "If a cut is unsafe, move it only to the nearest visually safe whitespace band; if no safe nearby band is visible, remove that cut. "
-        "Do not add new cuts unless the table has a very clear large whitespace band. "
-        'Return only JSON with this schema: {"accepted": true/false, "cuts": [integer_y_values], "reason": "short"}. '
+        "You are deciding whether a full-width table image should be vertically split before table recognition. "
+        "Use only the image and the proposed horizontal cuts; do not assume access to ground truth or scoring. "
+        "Prefer no split for short, simple, or risky tables where cutting could remove context. "
+        "Choose split only when the table is visually long or complex enough that chunk recognition is likely to help, and when each cut lies in a clear horizontal whitespace band between rows. "
+        "A safe cut must not cross text, borders, formulas, row content, headers, footnotes, or merged cells. "
+        "If a proposed cut is unsafe, move it only to the nearest visually safe whitespace band; if no safe nearby band is visible, remove that cut. "
+        "Do not add new cuts unless the table has a very clear large whitespace band and the resulting chunk count stays within the limit. "
+        'Return only JSON with this schema: {"accepted": true/false, "should_split": true/false, "complexity": "low/medium/high", "risk_factors": ["short strings"], "cuts": [integer_y_values], "reason": "short"}. '
+        "If should_split=false, return an empty cuts list. "
         "Keep cuts sorted, unique, strictly between 0 and image height, and keep chunk count <= "
         f"{max_chunks}. Image size is width={width}, height={height}. Proposed cuts: {cuts}."
     )
@@ -136,6 +145,40 @@ def _parse_review_json(content: str) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise ValueError("Review response must be a JSON object")
     return parsed
+
+
+def _normalize_split_decision(parsed: dict[str, Any], cuts: list[int]) -> dict[str, Any]:
+    should_split = parsed.get("should_split")
+    if isinstance(should_split, bool):
+        normalized_should_split = should_split and bool(cuts)
+    else:
+        normalized_should_split = bool(cuts)
+
+    risk_factors = parsed.get("risk_factors", [])
+    if not isinstance(risk_factors, list):
+        risk_factors = [str(risk_factors)] if risk_factors else []
+
+    complexity = str(parsed.get("complexity", "unknown") or "unknown").lower()
+    if complexity not in {"low", "medium", "high", "unknown"}:
+        complexity = "unknown"
+
+    return {
+        "should_split": normalized_should_split,
+        "complexity": complexity,
+        "risk_factors": [str(item) for item in risk_factors],
+        "cuts": cuts if normalized_should_split else [],
+        "reason": str(parsed.get("reason", "") or ""),
+    }
+
+
+def _default_split_decision(cuts: list[int]) -> dict[str, Any]:
+    return {
+        "should_split": bool(cuts),
+        "complexity": "unknown",
+        "risk_factors": [],
+        "cuts": cuts,
+        "reason": "default_from_cv_candidate",
+    }
 
 
 def _validate_cuts(cuts: Any, height: int, max_chunks: int) -> list[int]:
