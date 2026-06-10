@@ -1,31 +1,28 @@
-# Table Agent 规格说明
+# Table Agent 规格与性能提升记录
+
+更新时间：2026-06-10
+
+本文档是 Table Agent 的主规格文档，已合并原始 SPEC、性能提升 SPEC、阶段性 REPORT/SMOKE 记录和 SESSION_HANDOFF 中仍有用的信息。旧阶段文档已清理，后续以本文档为准。
 
 ## 1. 项目目标
 
 构建一个用于超大尺寸、超长表格图片识别的 Table Agent。
 
-Agent 需要对长表格图片进行纵向切分，分别调用 MinerU2.5-Pro 表格识别服务识别每个切片，得到多个 OTSL 结果后进行拼接，再将拼接后的 OTSL 转换为 HTML，最后用 TEDS 与 GT HTML 评分，并和整图直接识别的 MinerU2.5-Pro baseline 对比。
+Agent 对长表格图片进行纵向切分，分别调用 MinerU2.5-Pro 表格识别服务识别每个切片，得到多个 OTSL 结果后进行拼接，再将拼接后的 OTSL 转换为 HTML，最后用 TEDS 与 GT HTML 做离线评分，并和整图直接识别的 MinerU2.5-Pro baseline 对比。
 
-核心实验问题是：
+核心实验问题：
 
 > 纵向切分 + 子图识别 + OTSL 拼接，是否能比 MinerU2.5-Pro 整图直接识别获得更高的 TEDS？
 
-## 2. 项目位置
+本轮性能提升目标是在 48 条 large-table benchmark 上提升 `agent_avg_teds`，同时分析并减少 regression case。最终完整 48 条结果达到 `agent_avg_teds=0.9038593040110346`。
 
-所有新项目文件放在：
+## 2. 项目位置与数据
+
+项目目录：
 
 ```text
 /mnt/shared-storage-user/mineru2-shared/xiaojutao/Table-Agent
 ```
-
-可以复用现有工具，尤其是：
-
-```text
-/mnt/shared-storage-user/mineru2-shared/xiaojutao/utils/otsl2html.py
-/mnt/shared-storage-user/mineru2-shared/xiaojutao/utils/score_teds_jsonl.py
-```
-
-## 3. 数据
 
 Benchmark JSONL：
 
@@ -39,38 +36,44 @@ Benchmark JSONL：
 /mnt/shared-storage-user/mineru2-shared/xiaojutao/bench/fine_grained_bench/images
 ```
 
-每条数据至少包含：
+可复用工具：
 
-```json
-{
-  "image": "xxx.jpg",
-  "solution": "<table>...</table>",
-  "tag": "large_table"
-}
+```text
+/mnt/shared-storage-user/mineru2-shared/xiaojutao/utils/otsl2html.py
+/mnt/shared-storage-user/mineru2-shared/xiaojutao/utils/score_teds_jsonl.py
 ```
 
-`solution` 字段是 GT HTML。它只能用于最终评分，不能在 Agent 的切分、识别、重试、拼接过程中被读取或使用。
+## 3. 运行时边界
 
-## 4. 模型服务
+运行时可以使用：
 
-两个模型服务都通过 vLLM 部署，并以 OpenAI-compatible HTTP API 暴露：
+- 原始表格图片。
+- CV 生成的候选切点。
+- Qwen 对图片、图片尺寸、候选切点的判断。
+- MinerU 对整图或 crop 的真实 PPL 输出。
+- OTSL/HTML 自身结构信号。
+- crop 数量、图片尺寸、行列估计、warning 等元信息。
 
-- MinerU2.5-Pro 表格识别服务
-- Qwen3.5-397B VLM/LLM 决策服务
+运行时不允许使用：
+
+- GT `solution`。
+- TEDS/TEDS-S 分数。
+- baseline parse result 作为 agent fallback 输入。
+- 离线诊断得到的 case ID 白名单或黑名单。
+
+GT 和 TEDS 只用于离线评分、诊断报告和最终策略选择。
+
+## 4. 模型服务与环境
+
+两个模型服务通过 OpenAI-compatible HTTP API 调用：
+
+- MinerU2.5-Pro 表格识别服务。
+- Qwen3.5-397B VLM/LLM 决策服务。
 
 默认 API 形式：
 
 ```text
 POST http://<host>:<port>/v1/chat/completions
-```
-
-请求格式：
-
-```json
-{
-  "model": "...",
-  "messages": [...]
-}
 ```
 
 MinerU 表格识别 prompt：
@@ -79,366 +82,249 @@ MinerU 表格识别 prompt：
 Table Recognition: xxx
 ```
 
-MinerU 表格识别结果预期包含 OTSL。
-
-## 5. 图片输入方式
-
-base64 图片输入已确认支持，因此第一版默认使用 base64 作为可靠模式。
-
-实现中仍应保留图片输入方式配置：
-
-```yaml
-image_input_mode: base64
-```
-
-未来可选模式：
-
-```yaml
-image_input_mode: file_url
-image_input_mode: path
-```
-
-等服务 IP 可用后，第一个 smoke test 需要验证 MinerU 和 Qwen 实际支持的 message 格式。如果 path 或 file URL 也可用，后续可以为性能优化启用。但第一版不能依赖 path 支持。
-
-## 6. 输出字段
-
-批量输出 JSONL 需要保留 benchmark 原始字段，并新增：
-
-```json
-{
-  "baseline_parse_result": {
-    "status": "success",
-    "otsl": "...",
-    "html": "...",
-    "raw_response": {}
-  },
-  "agent_parse_result": {
-    "status": "success",
-    "otsl": "...",
-    "html": "..."
-  },
-  "agent_metadata": {
-    "image_path": "...",
-    "image_size": [1000, 8000],
-    "split_iterations": 1,
-    "max_split_iterations": 3,
-    "max_recognition_retries": 2,
-    "max_chunks": 12,
-    "chunks": [
-      {
-        "index": 0,
-        "box": [0, 0, 1000, 1200],
-        "crop_path": "...",
-        "status": "success",
-        "row_count": 20,
-        "estimated_col_count": 6
-      }
-    ],
-    "warnings": []
-  }
-}
-```
-
-baseline 评分命令：
+最近一次完整评估使用的 MinerU 服务节点：
 
 ```bash
-python /mnt/shared-storage-user/mineru2-shared/xiaojutao/utils/score_teds_jsonl.py \
-  --input-jsonl OUTPUT.jsonl \
-  --output-jsonl OUTPUT.baseline.scored.jsonl \
-  --pred-field baseline_parse_result \
-  --gt-field solution
+cd /
+ssh -CAXY ws-15667b3f02c1236f-worker-v6gjp.xiaojutao+root.ailab-sciversealign.pod@h.pjlab.org.cn -i id_rsa
 ```
 
-agent 评分命令：
+服务信息：
 
-```bash
-python /mnt/shared-storage-user/mineru2-shared/xiaojutao/utils/score_teds_jsonl.py \
-  --input-jsonl OUTPUT.jsonl \
-  --output-jsonl OUTPUT.agent.scored.jsonl \
-  --pred-field agent_parse_result \
-  --gt-field solution
+- 节点：`root@shaw-9dc9r-259705-worker-0`
+- MinerU endpoint：`http://127.0.0.1:8000/v1/chat/completions`
+- tmux session：`mineru_8000`
+- model：`MinerU-Pro`
+- MinerU 相关命令建议使用 `conda run -n mineru ...`
+
+注意：TEDS 评分在 base Python 环境可用；`mineru` env 曾缺少 `lxml`，评分时需确认环境依赖。
+
+## 5. 当前实现文件
+
+核心代码：
+
+- `table_agent/cli.py`：CLI 入口，包含 `run`、`summarize`、`diagnose` 等命令。
+- `table_agent/config.py`：配置结构，包含 `split_review_policy`。
+- `table_agent/runner.py`：端到端 benchmark runner 和 agent metadata 输出。
+- `table_agent/baseline.py`：整图 MinerU baseline。
+- `table_agent/splitter.py`：CV 候选切点生成。
+- `table_agent/split_review.py`：Qwen split/no-split 结构化决策。
+- `table_agent/recognition.py`：crop 识别流程。
+- `table_agent/otsl.py`：OTSL 合并、验证和轻量修复。
+- `table_agent/evaluation.py`：baseline/agent scored JSONL 汇总。
+- `table_agent/diagnostics.py`：离线 case-level 诊断。
+
+外部工具：
+
+- `../utils/score_teds_jsonl.py`：TEDS/TEDS-S 评分。
+- `../utils/mineru_server.sh`：MinerU 服务启动脚本。
+
+## 6. 已完成验收项
+
+| 验收项 | 状态 | 完成方式 | 关键文件/结果 |
+| --- | --- | --- | --- |
+| 1. 离线诊断统计 | 完成 | 新增 `diagnose` CLI，读取 run/scored artifacts 输出 case-level 统计 | `table_agent/diagnostics.py`, `table_agent/cli.py` |
+| 2. 错误 pattern 归因 | 完成 | 诊断 48 条 regression pattern，识别 single-chunk rerun、列数不一致、非法 OTSL token 等问题 | 已合并到本文档第 7 节 |
+| 3. Qwen split/no-split 决策 | 完成 | Qwen 输出 `should_split`、`complexity`、`risk_factors`、`cuts`、`reason`，解析失败有安全降级 | `table_agent/split_review.py`, `table_agent/runner.py` |
+| 4. 保守策略实验 | 完成 | 在 7-11 smoke 上验证保守策略，主要用于减少不确定切分 | 结果见第 8 节 |
+| 5. 积极策略实验 | 完成 | 新增 `split_review_policy: aggressive`，复杂表格更积极切分 | `table_agent/config.py`, `table_agent/split_review.py` |
+| 6. OTSL/crop 后处理实验 | 完成 | 新增 `repair_stray_otsl_angles` 修复文本裸 `<` 造成的非法 token | `table_agent/otsl.py` |
+| 7. 最终策略选择与清理 | 完成 | 完整 48 条评估，推荐 aggressive + OTSL repair，并清理阶段文档和旧中间产物 | 本文档、保留的最新 artifacts |
+
+对应关键提交：
+
+```text
+0a48b75 Document final strategy evaluation
+b0fe9a3 Repair stray OTSL angle brackets
+62d037d Add aggressive split review policy
+b29a67b Record conservative strategy smoke
+3e54d82 Add Qwen split decision metadata
+297cce4 Document performance regression patterns
+00868a3 Add offline run diagnostics
+a9f2b1b Add performance improvement spec
 ```
 
-## 7. Agent 流程
+更早项目搭建阶段的重要提交包括：`76988fe`、`fe1aa55`、`7b4f5f0`、`6233b57`、`fd68f4e`、`f6a6799`、`4e38051`、`4e3309e`、`52fd969`、`f441b26`、`bf0705c`、`192ac0c`、`7e39a1b`。
 
-第一版只支持纵向切分。
+## 7. 诊断结论
 
-流程：
+基于上一版 48 条结果：
 
-1. 读取 benchmark 记录。
-2. 解析图片路径。
-3. 对整图调用 MinerU，生成 `baseline_parse_result`。
-4. 生成纵向切分候选。
-5. 使用图像处理启发式方法寻找更安全的横向切点。
-6. 调用 Qwen3.5-397B VLM 审核并修正切分位置。
-7. 在配置限制内迭代修正切分方案。
-8. 按最终切分方案裁图。
-9. 对每个 crop 调用 MinerU。
-10. 对每个 crop 的 OTSL 做基础解析和轻量校验。
-11. 按 crop 的纵向顺序拼接 OTSL。
-12. 将拼接后的 OTSL 转为 HTML。
-13. 写出结果 JSONL。
-14. 在 Agent 外部运行 TEDS 评分。
+```text
+count: 48
+baseline_avg_teds: 0.8634187595356039
+agent_avg_teds: 0.8926355322939662
+absolute_improvement: 0.02921677275836232
+relative_improvement: 0.03383847343562094
+improvement case: 15
+unchanged case: 21
+regression case: 12
+```
 
-## 8. 切分策略
+主要 regression pattern：
 
-第一版采用保守纵向切分：
+1. single-chunk rerun 波动。
+   - 代表 case：7、8、31、38。
+   - agent 最终只有 1 个 chunk，本质是重新调用 MinerU 整图识别，可能出现与 baseline 不一致的随机波动。
+2. multi-chunk 列数不一致。
+   - 代表 case：11、46。
+   - warning 包括 `column_count_inconsistent`，是大幅 regression 的主要来源。
+3. crop OTSL 非法 token。
+   - 代表 case：11。
+   - 文本里的裸 `<`，例如 `% FINES <#200 (%)`，会被 OTSL token validator 误判。
+4. 无 warning 的结构波动。
+   - 部分 case 没有明显 warning，但切分或重跑后 TEDS 下降。
 
-- 每个 crop 保持完整表格宽度。
-- 只沿 y 轴切分。
-- 不使用重叠。
-- 不主动切碎合并单元格。
-- 第一版不把表头复制到每个 crop。
+这些诊断只用于离线分析，运行时策略没有读取 GT、TEDS 或样本 ID。
 
-CV 候选切点生成不能只依赖可见表格线。
+## 8. 实验结果
 
-对于有线表，可以使用：
+### 保守策略 smoke
 
-- 横向线响应
-- 行边界信号
-- 边缘密度
+范围：benchmark indices 7-11，共 5 条。
 
-对于无线表或弱线表，可以使用：
+```text
+success: 5 / 5
+baseline_avg_teds: 0.8850028278680522
+agent_avg_teds: 0.8101394181017858
+absolute_improvement: -0.07486340976626638
+relative_improvement: -0.08459115316796252
+avg_chunk_count: 1.6
+avg_split_iterations: 1.4
+```
 
-- 横向空白带
-- 文本/像素密度低谷
-- 投影统计
+结论：保守策略可以减少不确定切分，但该 smoke 子集上平均分低于 baseline。
 
-对于浅色线条或线条颜色不稳定的情况，应退化到基于密度和空白带的策略。
+### 积极策略 smoke
 
-VLM 审核负责最终判断切点是否在视觉上切穿文本、行、单元格或明显合并单元格。
+范围：benchmark indices 7-11，共 5 条。
 
-## 9. OTSL 处理
+```text
+success: 5 / 5
+baseline_avg_teds: 0.8847791142215197
+agent_avg_teds: 0.8624223842043918
+absolute_improvement: -0.0223567300171279
+relative_improvement: -0.025268148465279562
+avg_chunk_count: 2.0
+avg_split_iterations: 1.8
+```
 
-OTSL token：
+结论：同一子集上 aggressive 明显优于 conservative，但仍未超过 baseline。
 
-- `<fcel>`：有内容单元格
-- `<ecel>`：空单元格
-- `<lcel>`：从左侧合并而来，用于 colspan
-- `<ucel>`：从上方合并而来，用于 rowspan
-- `<xcel>`：同时从左侧和上方合并而来，用于二维合并区域
-- `<nl>`：行结束
+### OTSL repair smoke
 
-第一版实现容错纵向 OTSL 拼接：
+范围：benchmark index 11。
 
-- 用 `<nl>` 将每个 OTSL 拆成行。
-- 保持 crop 原始纵向顺序。
-- 拼接所有 crop 的行。
-- 检查 token 合法性。
-- 估计行数和列数，并写入 metadata。
-- 允许轻微列数不一致。
-- 优先做保守清洗，不做激进修复。
+```text
+baseline_avg_teds: 0.9167916461149543
+agent_avg_teds: 0.770739014536007
+absolute_improvement: -0.14605263157894732
+```
 
-第一版不要求完美恢复跨 crop 边界的 rowspan 或 colspan。
+OTSL repair 将 `illegal_otsl_tokens` warning 替换为 `repaired_stray_otsl_angle:0`，但 `column_count_inconsistent:[21, 17]` 仍存在。结论：该修复能消除非法 token，但不能单独解决列数不一致。
 
-## 10. 调用与迭代限制
+### 最终 48 条 aggressive full run
 
-默认限制：
+保留 artifacts：
+
+- `outputs/e2e_aggressive_48.jsonl`
+- `outputs/e2e_aggressive_48.baseline.scored.jsonl`
+- `outputs/e2e_aggressive_48.agent.scored.jsonl`
+- `outputs/e2e_aggressive_48.summary.json`
+- `crops/e2e_*.jpg` 中被 `outputs/e2e_aggressive_48.jsonl` 引用的最新 crop 图片。
+- `raw_responses/e2e_baseline/*.json` 和 `raw_responses/e2e_crops/*.json` 中被最新 run 引用的原始响应。
+
+最终指标：
+
+| metric | value |
+| --- | ---: |
+| count | 48 |
+| baseline_avg_teds | 0.8614947094362552 |
+| agent_avg_teds | 0.9038593040110346 |
+| absolute_improvement | 0.04236459457477948 |
+| relative_improvement | 0.04917568745431068 |
+| success_count | 48 |
+| failure_count | 0 |
+| avg_chunk_count | 1.9166666666666667 |
+| avg_split_iterations | 1.4583333333333333 |
+
+相对上一版目标 `agent_avg_teds=0.8926355322939662`，提升 `+0.011223771717068434`。
+
+Most improved Top 8：
+
+| index | delta_teds | baseline | agent | warning |
+| ---: | ---: | ---: | ---: | --- |
+| 31 | +0.6279866573114815 | 0.30991904247422075 | 0.9379056997857023 | none |
+| 43 | +0.3718225014186255 | 0.5841333503098209 | 0.9559558517284464 | none |
+| 34 | +0.349395710452158 | 0.5473033957239031 | 0.8966991061760611 | none |
+| 22 | +0.31015619376664494 | 0.6247030878859858 | 0.9348592816526308 | none |
+| 28 | +0.24075129582890287 | 0.7543649247304491 | 0.995116220559352 | none |
+| 5 | +0.210545933669666 | 0.6569754338517015 | 0.8675213675213675 | none |
+| 13 | +0.1474141054311212 | 0.8328073298623037 | 0.9802214352934249 | none |
+| 40 | +0.11166733433256892 | 0.8572357019064125 | 0.9689030362389814 | none |
+
+Most regressed Top 8：
+
+| index | delta_teds | baseline | agent | warning |
+| ---: | ---: | ---: | ---: | --- |
+| 46 | -0.18792228798040866 | 0.8910623409669212 | 0.7031400529865125 | `column_count_inconsistent:[36, 29]` |
+| 11 | -0.14605263157894732 | 0.9167916461149543 | 0.770739014536007 | `repaired_stray_otsl_angle:0`, `column_count_inconsistent:[21, 17]` |
+| 19 | -0.09373351148293152 | 0.9991748991748992 | 0.9054413876919677 | `column_count_inconsistent:[25, 23]` |
+| 1 | -0.07522720743653699 | 0.9225449515905948 | 0.8473177441540578 | none |
+| 39 | -0.0609994756985105 | 0.8756738544474394 | 0.8146743787489289 | `column_count_inconsistent:[21, 11]` |
+| 6 | -0.0540395261531611 | 0.977227572967938 | 0.923188046814777 | none |
+| 41 | -0.03246814681158283 | 0.8601485691294265 | 0.8276804223178437 | `column_count_inconsistent:[20, 17]` |
+| 12 | -0.031198179524152825 | 0.914193302891933 | 0.8829951233677802 | none |
+
+## 9. 推荐策略
+
+推荐采用：
 
 ```yaml
-max_split_iterations: 3
-max_recognition_retries: 2
-max_chunks: 12
+split_review_policy: aggressive
 ```
 
-如果达到限制：
+并保留 OTSL stray angle repair。
 
-- 停止继续重试或修正。
-- 使用当前可用的最佳结果。
-- 在 `agent_metadata.warnings` 中记录原因。
+原因：
 
-如果单个 crop 失败：
+- aggressive full run 在 48 条上达到 `agent_avg_teds=0.9038593040110346`，高于上一版 `0.8926355322939662`。
+- 最显著收益来自复杂大表，尤其是 baseline 低分样本被切分后大幅改善。
+- 代价是仍有若干 column-count regression，需要后续继续修复合并/列对齐逻辑。
 
-- 不让整个 batch 崩溃。
-- 标记该 crop 失败。
-- 如果可以拼出部分结果，则样本标记为 `partial_success`。
-- 保留足够 metadata 方便诊断。
+## 10. 复现命令
 
-## 11. 项目范围
+完整 48 条运行：
 
-第一版包含：
+```bash
+cd /mnt/shared-storage-user/mineru2-shared/xiaojutao/Table-Agent
+conda run -n mineru python -m table_agent.cli run   --config /tmp/table_agent_newmineru_aggressive.yaml   --output-jsonl outputs/e2e_aggressive_48.jsonl   --sample-timeout 600
+```
 
-- OpenAI-compatible vLLM HTTP client。
-- base64 图片 message 支持。
-- MinerU 表格识别 client。
-- Qwen3.5-397B 切分审核 client。
-- 纵向切分候选生成。
-- crop 裁剪和保存。
-- OTSL 解析、校验、容错拼接。
-- OTSL 到 HTML 转换集成。
-- benchmark JSONL 批量运行脚本。
-- 整图 baseline 识别结果收集。
-- Agent 切分识别结果收集。
-- TEDS 评分命令或 wrapper。
-- metadata 和诊断信息输出。
-- 3-5 条样本 smoke test。
-- 50 条 large-table 样本完整评测。
+汇总：
 
-## 12. 暂不实现
+```bash
+python -m table_agent.cli summarize   --run-jsonl outputs/e2e_aggressive_48.jsonl   --baseline-scored-jsonl outputs/e2e_aggressive_48.baseline.scored.jsonl   --agent-scored-jsonl outputs/e2e_aggressive_48.agent.scored.jsonl   --output-json outputs/e2e_aggressive_48.summary.json   --top-k 8
+```
 
-第一版不做：
+注意：整批 TEDS 评分在大表上曾异常退出且不落盘。本次最终评估采用逐条评分后合并 scored JSONL 的方式。合并后的 scored 文件格式仍与 `score_teds_jsonl.py` 输出兼容：第一行为 `__summary__`，后续 48 行为样本行。
 
-- 横向切分。
-- 二维网格切分。
-- 跨页表格处理。
-- 表格区域检测。
-- 将表头复制到每个 crop。
-- 重复表头删除。
-- 跨 crop 边界的复杂 rowspan/colspan 恢复。
-- 在 Agent 决策中使用 GT HTML。
-- 将 TEDS 评分作为 Agent 可调用工具。
-- 模型训练或微调。
-- 多模型 ensemble。
-- 针对单个样本写人工特化规则。
-- 激进 OTSL 幻觉修复。
+## 11. 中间产物清理约定
 
-## 13. 分阶段验收项
+当前保留最新 full run 相关产物，便于人工检查：
 
-开发时一次只做一个验收项。
+- `outputs/e2e_aggressive_48.*`
+- 最新 run 引用的 `crops/e2e_*.jpg`
+- 最新 run 引用的 `raw_responses/e2e_baseline/*.json`
+- 最新 run 引用的 `raw_responses/e2e_crops/*.json`
 
-每个验收项实现并验证通过后，必须先创建一个 git commit，再开始下一个验收项。这样后续如果改坏，最多只需要回退一小步。
+其它 smoke、历史 run、review、recognize、manual raw response 产物可以清理。
 
-### 验收项 1：项目骨架与配置
+## 12. 后续注意事项
 
-通过标准：
-
-- `Table-Agent` 有清晰项目结构。
-- 配置文件支持：
-  - MinerU endpoint
-  - Qwen endpoint
-  - model name
-  - image input mode
-  - max split iterations
-  - max recognition retries
-  - max chunks
-  - input/output paths
-- 暂不需要实际模型调用。
-- 基础 CLI 可以加载并打印校验后的配置。
-
-通过后 git commit。
-
-### 验收项 2：OpenAI-Compatible Vision Client Smoke Test
-
-通过标准：
-
-- client 可以发送 base64 image message。
-- client 可以用 `Table Recognition: xxx` 调用 MinerU 服务。
-- client 可以调用 Qwen 服务执行简单视觉检查 prompt。
-- 原始响应会保存，方便调试。
-- 如果服务 IP 暂不可用，该验收项标记为 blocked，不能用 mock 假装通过。
-
-通过后 git commit。
-
-### 验收项 3：整图 Baseline 收集
-
-通过标准：
-
-- 批处理脚本可以读取 benchmark JSONL。
-- 可以解析图片路径。
-- 可以对整图调用 MinerU。
-- 写出 `baseline_parse_result`。
-- 尽可能将 baseline OTSL 转为 HTML。
-- 支持 `--start`、`--end`、`--limit`。
-- 可以在 3-5 条样本上跑通。
-
-通过后 git commit。
-
-### 验收项 4：纵向切分候选生成
-
-通过标准：
-
-- 工具可以加载大图并生成纵向 crop box。
-- chunk 数量遵守 `max_chunks`。
-- 候选切点使用图像统计，不只依赖表格线。
-- crop 图片可以保存。
-- metadata 记录图片尺寸和 crop box。
-- 不需要模型调用即可本地跑通。
-
-通过后 git commit。
-
-### 验收项 5：VLM 切分审核与迭代
-
-通过标准：
-
-- Qwen 可以审核候选切分位置。
-- Qwen 可以返回接受或修正后的 y 坐标。
-- 切分修正不会超过 `max_split_iterations`。
-- 非法模型响应会被安全处理。
-- metadata 记录迭代次数和 warning。
-- 可以在 3-5 条样本上跑通。
-
-通过后 git commit。
-
-### 验收项 6：Crop 识别
-
-通过标准：
-
-- 每个 crop 会发送给 MinerU。
-- 每个 crop 结果保存 OTSL 和 raw response。
-- 每个 crop 的重试次数遵守 `max_recognition_retries`。
-- 单个 crop 失败不会导致整个样本崩溃。
-- metadata 记录 crop 状态。
-
-通过后 git commit。
-
-### 验收项 7：OTSL 拼接与 HTML 转换
-
-通过标准：
-
-- crop OTSL 可以拆成行。
-- 行按纵向 crop 顺序拼接。
-- token 合法性会被检查。
-- 轻微列数不一致可以容忍。
-- 拼接后的 OTSL 可以通过现有工具转为 HTML。
-- 输出写入 `agent_parse_result`。
-
-通过后 git commit。
-
-### 验收项 8：端到端 Smoke Test
-
-通过标准：
-
-- 3-5 条 benchmark 样本可以端到端跑通。
-- 输出包含：
-  - `baseline_parse_result`
-  - `agent_parse_result`
-  - `agent_metadata`
-- Agent 不读取、不使用 `solution`，除非单独运行评分。
-- 单个样本失败不会导致整个 batch 崩溃。
-- baseline 和 agent 字段都可以跑 TEDS 评分。
-
-通过后 git commit。
-
-### 验收项 9：50 条完整评测
-
-通过标准：
-
-- 跑完整 50 条 large-table 样本。
-- 生成 baseline scored JSONL。
-- 生成 agent scored JSONL。
-- 生成汇总结果，包括：
-  - baseline 平均 TEDS
-  - agent 平均 TEDS
-  - 绝对提升
-  - 相对提升
-  - success 数量
-  - partial success 数量
-  - failure 数量
-  - 平均 chunk 数
-  - 平均切分迭代次数
-- 列出提升最多和下降最多的样本，方便分析。
-
-通过后 git commit。
-
-## 14. 总体验收
-
-项目完成标准：
-
-- 所有验收项均完成。
-- 每个验收项都有对应 git commit。
-- 50 条完整评测可以通过文档命令复现。
-- 结果以 JSONL 文件保存。
-- 最终报告明确说明 Table Agent 相比 MinerU2.5-Pro 整图 baseline 是否提升了 TEDS。
-
-第一阶段不强制要求 TEDS 一定提升。第一阶段的成功标准是：实验可信、可复现、可诊断。TEDS 是否提升是本项目要测量的实验结果。
-
+1. 不要把 baseline parse result 作为 agent fallback 输入，除非另立规格并重新确认，因为这会改变当前实验定义。
+2. `split_review_policy: aggressive` 是目前推荐策略，但不是无风险策略；后续最值得优化的是 crop 合并时的列对齐/列数一致性。
+3. Qwen split review 的结构化 JSON 是诊断和复现实验的重要信息，后续改 prompt 时应保持 `split_decision` 元数据。
+4. OTSL repair 只解决裸 `<` 的非法 token，不解决列数不一致。
+5. 若重新跑完整评测，建议先清空旧中间产物或输出到独立 run 目录，避免 `crops/`、`outputs/`、`raw_responses/` 混入历史文件。
+6. 本项目目录中的中间产物多数被 `.gitignore` 忽略；需要提交的是代码、配置和主规格文档，不提交大体积 run artifacts。
