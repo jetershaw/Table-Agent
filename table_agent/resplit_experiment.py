@@ -7,12 +7,13 @@ import time
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from PIL import Image
 
 from table_agent.benchmark import iter_benchmark_records, resolve_image_path
 from table_agent.config import AgentConfig
 from table_agent.mineru_client import MinerUTableClient
-from table_agent.otsl import merge_vertical_otsl
+from table_agent.otsl import merge_vertical_otsl, split_otsl_rows
 from table_agent.recognition import recognize_crop
 from table_agent.split_review import (
     _extract_content,
@@ -24,7 +25,13 @@ from table_agent.client import VisionClient
 from table_agent.splitter import _choose_safe_cuts, _cuts_to_boxes, save_crops
 
 
-STRATEGIES = ("shift_cuts", "chunk_count", "header_overlap", "qwen_header")
+STRATEGIES = (
+    "shift_cuts",
+    "chunk_count",
+    "header_overlap",
+    "header_repeat",
+    "qwen_header",
+)
 
 
 def run_resplit_smoke(
@@ -87,7 +94,32 @@ def run_resplit_smoke(
                 )
                 qwen_calls += int(plan.get("extra_qwen_calls", 0))
                 stem = f"resplit_{strategy}_{record_index:05d}_{Path(image_path).stem}"
-                chunks = save_crops(image_path, plan["boxes"], config.paths.crop_dir, stem=stem)
+                header_probe = None
+                header_row_count = 0
+                if strategy == "header_repeat":
+                    header_probe = _save_header_probe_crop(
+                        image_path, plan, config.paths.crop_dir, stem=stem
+                    )
+                    header_raw_path = strategy_raw_dir / f"{record_index:05d}_header.json"
+                    header_recognition = recognize_crop(
+                        client,
+                        header_probe["crop_path"],
+                        raw_path=header_raw_path,
+                        max_retries=config.max_recognition_retries,
+                    )
+                    mineru_calls += 1 + int(header_recognition.get("retry_count", 0) or 0)
+                    header_probe.update(header_recognition)
+                    header_row_count = _header_row_count(
+                        str(header_recognition.get("otsl", "") or ""),
+                        int(plan.get("estimated_header_row_count", 1) or 1),
+                    )
+                    chunks = _save_header_repeat_crops(
+                        image_path, plan, config.paths.crop_dir, stem=stem
+                    )
+                else:
+                    chunks = save_crops(
+                        image_path, plan["boxes"], config.paths.crop_dir, stem=stem
+                    )
 
                 for chunk in chunks:
                     raw_path = strategy_raw_dir / f"{record_index:05d}_{chunk['index']:02d}.json"
@@ -99,6 +131,9 @@ def run_resplit_smoke(
                     )
                     mineru_calls += 1 + int(recognition.get("retry_count", 0) or 0)
                     chunk.update(recognition)
+
+                if strategy == "header_repeat":
+                    _strip_repeated_header_rows(chunks, header_row_count)
 
                 merged = merge_vertical_otsl(
                     [str(chunk.get("otsl", "") or "") for chunk in chunks]
@@ -125,9 +160,12 @@ def run_resplit_smoke(
                     "strategy_cuts": plan["cuts"],
                     "strategy_boxes": plan["boxes"],
                     "split_decision": plan.get("split_decision", {}),
+                    "header_band": plan.get("header_band", {}),
+                    "header_probe": header_probe,
+                    "header_row_count": header_row_count,
                     "chunks": chunks,
                     "warnings": list(plan.get("warnings", [])) + merged["warnings"],
-                    "extra_mineru_calls": len(chunks),
+                    "extra_mineru_calls": len(chunks) + (1 if header_probe else 0),
                     "extra_qwen_calls": int(plan.get("extra_qwen_calls", 0)),
                     "elapsed_seconds": elapsed,
                 }
@@ -201,9 +239,128 @@ def _build_strategy_plan(
             "warnings": [],
             "extra_qwen_calls": 0,
         }
+    if strategy == "header_repeat":
+        cuts = original_cuts
+        boxes = [box.to_list() for box in _cuts_to_boxes(width, height, cuts)]
+        header_bottom = _detect_header_bottom(image_path, cuts, height)
+        return {
+            "cuts": cuts,
+            "boxes": boxes,
+            "header_band": {"box": [0, 0, width, header_bottom]},
+            "estimated_header_row_count": max(1, min(4, round(header_bottom / 44))),
+            "split_decision": {
+                "strategy": strategy,
+                "header_bottom": header_bottom,
+                "header_repeat": True,
+                "strip_repeated_header_rows": True,
+            },
+            "warnings": [],
+            "extra_qwen_calls": 0,
+        }
     if strategy == "qwen_header":
         return _qwen_header_plan(config, image_path, width, height, original_metadata)
     raise ValueError(f"Unknown strategy: {strategy}")
+
+
+def _detect_header_bottom(image_path: Path, cuts: list[int], height: int) -> int:
+    first_body_limit = cuts[0] if cuts else height
+    search_high = min(first_body_limit - 24, max(96, int(height * 0.28)), 420)
+    if search_high <= 72:
+        return max(48, min(first_body_limit, height, 96))
+
+    image = Image.open(image_path).convert("L")
+    gray = np.asarray(image, dtype=np.float32) / 255.0
+    ink_density = 1.0 - gray.mean(axis=1)
+    smooth = _smooth_1d(ink_density, radius=8)
+    low = min(72, search_high - 1)
+    candidates = range(low, search_high)
+    best = min(candidates, key=lambda y: (smooth[y], -y))
+    return int(max(48, min(best, first_body_limit - 8, height)))
+
+
+def _smooth_1d(values: np.ndarray, radius: int) -> np.ndarray:
+    if radius <= 0:
+        return values
+    kernel = np.ones(radius * 2 + 1, dtype=np.float32)
+    kernel /= kernel.sum()
+    return np.convolve(values, kernel, mode="same")
+
+
+def _save_header_probe_crop(
+    image_path: str | Path, plan: dict[str, Any], output_dir: str | Path, *, stem: str
+) -> dict[str, Any]:
+    image = Image.open(image_path).convert("RGB")
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    header_box = plan["header_band"]["box"]
+    crop_path = out_dir / f"{stem}.header.jpg"
+    image.crop(tuple(header_box)).save(crop_path, quality=95)
+    return {
+        "index": "header",
+        "box": header_box,
+        "crop_path": str(crop_path),
+        "status": "pending",
+    }
+
+
+def _save_header_repeat_crops(
+    image_path: str | Path, plan: dict[str, Any], output_dir: str | Path, *, stem: str
+) -> list[dict[str, Any]]:
+    image = Image.open(image_path).convert("RGB")
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    header_box = plan["header_band"]["box"]
+    header = image.crop(tuple(header_box))
+    chunks = []
+    for index, body_box in enumerate(plan["boxes"]):
+        if index == 0:
+            crop = image.crop(tuple(body_box))
+            synthetic_header = False
+        else:
+            body = image.crop(tuple(body_box))
+            crop = Image.new("RGB", (image.width, header.height + body.height), "white")
+            crop.paste(header, (0, 0))
+            crop.paste(body, (0, header.height))
+            synthetic_header = True
+        crop_path = out_dir / f"{stem}.crop-{index:02d}.jpg"
+        crop.save(crop_path, quality=95)
+        chunks.append(
+            {
+                "index": index,
+                "box": [0, 0, crop.width, crop.height] if synthetic_header else body_box,
+                "body_box": body_box,
+                "header_box": header_box if synthetic_header else None,
+                "synthetic_header_repeated": synthetic_header,
+                "crop_path": str(crop_path),
+                "status": "pending",
+            }
+        )
+    return chunks
+
+
+def _header_row_count(header_otsl: str, fallback: int) -> int:
+    rows = split_otsl_rows(header_otsl)
+    if rows:
+        return max(1, min(6, len(rows)))
+    return max(1, min(6, fallback))
+
+
+def _strip_repeated_header_rows(
+    chunks: list[dict[str, Any]], header_row_count: int
+) -> None:
+    for chunk in chunks:
+        if not chunk.get("synthetic_header_repeated"):
+            chunk["removed_header_rows"] = 0
+            continue
+        rows = split_otsl_rows(str(chunk.get("otsl", "") or ""))
+        remove_count = min(header_row_count, max(0, len(rows) - 1))
+        if remove_count <= 0:
+            chunk["removed_header_rows"] = 0
+            continue
+        chunk["otsl_before_header_strip"] = chunk.get("otsl", "")
+        chunk["removed_header_rows"] = remove_count
+        chunk["removed_header_otsl_rows"] = rows[:remove_count]
+        chunk["otsl"] = "".join(rows[remove_count:])
 
 
 def _qwen_header_plan(
