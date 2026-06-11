@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing as mp
+import time
 from pathlib import Path
 from typing import Any
 
@@ -30,9 +31,11 @@ def run_end_to_end(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     baseline_raw_dir = Path(config.paths.raw_response_dir) / "e2e_baseline"
     crop_raw_dir = Path(config.paths.raw_response_dir) / "e2e_crops"
+    fallback_raw_dir = Path(config.paths.raw_response_dir) / "e2e_fallback"
     row_dir = Path(config.paths.raw_response_dir) / "e2e_rows"
     baseline_raw_dir.mkdir(parents=True, exist_ok=True)
     crop_raw_dir.mkdir(parents=True, exist_ok=True)
+    fallback_raw_dir.mkdir(parents=True, exist_ok=True)
     row_dir.mkdir(parents=True, exist_ok=True)
 
     total = 0
@@ -51,6 +54,7 @@ def run_end_to_end(
                 record,
                 baseline_raw_dir,
                 crop_raw_dir,
+                fallback_raw_dir,
                 row_dir,
                 sample_timeout,
             )
@@ -80,6 +84,7 @@ def _run_sample_with_timeout(
     record: dict[str, Any],
     baseline_raw_dir: Path,
     crop_raw_dir: Path,
+    fallback_raw_dir: Path,
     row_dir: Path,
     sample_timeout: int,
 ) -> tuple[dict[str, Any], str]:
@@ -87,7 +92,16 @@ def _run_sample_with_timeout(
     row_path = row_dir / f"{record_index:05d}.json"
     process = mp.Process(
         target=_run_sample_worker,
-        args=(config, record_index, record, baseline_raw_dir, crop_raw_dir, row_path, queue),
+        args=(
+            config,
+            record_index,
+            record,
+            baseline_raw_dir,
+            crop_raw_dir,
+            fallback_raw_dir,
+            row_path,
+            queue,
+        ),
     )
     process.start()
     process.join(sample_timeout)
@@ -117,6 +131,7 @@ def _run_sample_worker(
     record: dict[str, Any],
     baseline_raw_dir: Path,
     crop_raw_dir: Path,
+    fallback_raw_dir: Path,
     row_path: Path,
     queue: mp.SimpleQueue,
 ) -> None:
@@ -127,7 +142,14 @@ def _run_sample_worker(
         row["baseline_parse_result"] = _run_baseline(
             mineru_client, image_path, baseline_raw_dir / f"{record_index:05d}.json"
         )
-        metadata = _run_agent(config, mineru_client, image_path, record_index, crop_raw_dir)
+        metadata = _run_agent(
+            config,
+            mineru_client,
+            image_path,
+            record_index,
+            crop_raw_dir,
+            fallback_raw_dir,
+        )
         row["agent_metadata"] = metadata
         row["agent_parse_result"] = metadata.pop("agent_parse_result")
         status = row["agent_parse_result"].get("status", "failed")
@@ -176,6 +198,7 @@ def _run_agent(
     image_path: Path,
     record_index: int,
     raw_dir: Path,
+    fallback_raw_dir: Path,
 ) -> dict[str, Any]:
     proposed = propose_vertical_crops(image_path, max_chunks=config.max_chunks)
     reviewed = review_split_candidates(config, image_path, proposed)
@@ -201,6 +224,29 @@ def _run_agent(
         chunk["estimated_col_count"] = col_count
     warnings.extend(merged["warnings"])
     status = _sample_status(chunks)
+    split_merge_result = {
+        "status": status,
+        "otsl": merged["otsl"],
+        "html": merged["html"],
+    }
+
+    fallback_reasons = _fallback_reasons(
+        [str(warning) for warning in merged["warnings"]],
+        [int(count) for count in merged["crop_col_counts"]],
+    )
+    fallback_result: dict[str, Any] | None = None
+    fallback_elapsed = 0.0
+    selected_result_source = "split_merge"
+    agent_parse_result = split_merge_result
+    if fallback_reasons:
+        started = time.perf_counter()
+        fallback_result = _run_full_image_fallback(
+            client, image_path, fallback_raw_dir / f"{record_index:05d}.json"
+        )
+        fallback_elapsed = time.perf_counter() - started
+        if fallback_result["status"] == "success":
+            selected_result_source = "fallback_full_image"
+            agent_parse_result = fallback_result
 
     return {
         "image_path": str(image_path),
@@ -212,12 +258,45 @@ def _run_agent(
         "max_chunks": config.max_chunks,
         "chunks": chunks,
         "warnings": warnings,
-        "agent_parse_result": {
-            "status": status,
-            "otsl": merged["otsl"],
-            "html": merged["html"],
-        },
+        "retry_triggered": False,
+        "retry_reason": [],
+        "retry_strategy": "",
+        "retry_attempts": 0,
+        "fallback_triggered": bool(fallback_reasons),
+        "fallback_reason": fallback_reasons,
+        "fallback_raw_response": (
+            fallback_result.get("raw_response", {}) if fallback_result else {}
+        ),
+        "fallback_elapsed_seconds": fallback_elapsed,
+        "selected_result_source": selected_result_source,
+        "extra_mineru_calls": 1 if fallback_reasons else 0,
+        "extra_qwen_calls": 0,
+        "agent_parse_result": agent_parse_result,
     }
+
+
+def _run_full_image_fallback(
+    client: MinerUTableClient, image_path: Path, raw_path: Path
+) -> dict[str, Any]:
+    raw = client.recognize_table(image_path)
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(raw_path, raw)
+    otsl = str(raw.get("otsl", "") or "")
+    return {
+        "status": "success" if otsl else "failed",
+        "otsl": otsl,
+        "html": raw.get("html") or otsl_to_html_when_possible(otsl),
+        "raw_response": {"path": str(raw_path)},
+    }
+
+
+def _fallback_reasons(warnings: list[str], crop_col_counts: list[int]) -> list[str]:
+    tags = {warning.split(":", 1)[0] for warning in warnings}
+    non_zero_cols = [count for count in crop_col_counts if count]
+    col_spread = max(non_zero_cols) - min(non_zero_cols) if non_zero_cols else 0
+    if "column_count_inconsistent" in tags and col_spread >= 4:
+        return [f"severe_col_count_spread:{col_spread}"]
+    return []
 
 
 def _sample_status(chunks: list[dict[str, Any]]) -> str:
