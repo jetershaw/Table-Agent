@@ -10,15 +10,19 @@ Start here, in this order:
 
 1. `PROJECT_MAP.md`
    - This orientation file.
-2. `THIRD_STAGE_OPTIMIZATION_SPEC.zh.md`
-   - The active next-round SPEC.
-   - The next task starts with acceptance item 1: offline diagnostics and retry/fallback candidate statistics.
-3. `SPEC.zh.md`
+2. `THIRD_STAGE_ACCEPTANCE_7_REPORT.zh.md`
+   - Final third-stage strategy and 48-case result.
+3. `THIRD_STAGE_ACCEPTANCE_8_REPORT.zh.md`
+   - Final documentation delivery and cleanup record.
+4. `THIRD_STAGE_OPTIMIZATION_SPEC.zh.md`
+   - Historical third-stage SPEC; acceptance items 1, 2, 4, 5, 6, and 7 are complete.
+   - Acceptance item 3 was skipped because no re-split strategy had positive smoke results.
+5. `SPEC.zh.md`
    - Consolidated project spec and historical performance record.
    - Contains the current best 48-case result and prior completion history.
-4. `utils/CLAUDE.md`
+6. `utils/CLAUDE.md`
    - Local engineering rules: think first, keep changes surgical, verify each goal.
-5. `configs/default.yaml`
+7. `configs/default.yaml`
    - Default service/config paths and current baseline runtime knobs.
 
 Historical context only:
@@ -31,8 +35,14 @@ Historical context only:
 
 Latest retained full-run artifacts are under `outputs/`:
 
-- `outputs/e2e_aggressive_48.jsonl`
+- `outputs/cost_tiers/high.jsonl`
 - `outputs/e2e_aggressive_48.baseline.scored.jsonl`
+- `outputs/cost_tiers/high.agent.scored.jsonl`
+- `outputs/cost_tiers/high.summary.json`
+
+Previous aggressive artifacts are still retained:
+
+- `outputs/e2e_aggressive_48.jsonl`
 - `outputs/e2e_aggressive_48.agent.scored.jsonl`
 - `outputs/e2e_aggressive_48.summary.json`
 
@@ -42,11 +52,13 @@ Current best summary:
 | --- | ---: |
 | count | 48 |
 | baseline_avg_teds | 0.8614947094362552 |
-| agent_avg_teds | 0.9038593040110346 |
-| absolute_improvement | 0.04236459457477948 |
-| relative_improvement | 0.04917568745431068 |
+| agent_avg_teds | 0.9127643569708148 |
+| absolute_improvement | 0.05126964753455965 |
+| relative_improvement | 0.05951243457793197 |
 | success_count | 48 |
 | failure_count | 0 |
+| fallback_trigger_count | 4 |
+| extra_mineru_calls | 4 |
 | avg_chunk_count | 1.9166666666666667 |
 | avg_split_iterations | 1.4583333333333333 |
 
@@ -70,6 +82,7 @@ benchmark row
   -> crop image saving
   -> MinerU crop recognition
   -> OTSL repair/merge
+  -> optional agent full-image fallback on severe column spread
   -> HTML conversion
   -> agent_parse_result + metadata
   -> offline TEDS scoring and summary
@@ -79,7 +92,7 @@ Important boundary:
 
 - Runtime agent must not use GT `solution`, TEDS/TEDS-S, case-id white/blacklists, or baseline parse result fallback.
 - Offline diagnostics and final evaluation may use GT/TEDS.
-- Fallback in the third-stage SPEC, if implemented, must call MinerU full-image recognition again from the agent path. It must not reuse `baseline_parse_result`.
+- Runtime fallback calls MinerU full-image recognition again from the agent path when `column_count_inconsistent` and crop column spread `>= 3`; it does not reuse `baseline_parse_result`.
 
 ## 4. CLI Entry Points
 
@@ -109,6 +122,10 @@ Commands:
   - Summarize scored baseline/agent JSONL files.
 - `python -m table_agent.cli diagnose`
   - Build offline case-level diagnostics.
+- `python -m table_agent.cli resplit-smoke`
+  - Run third-stage offline re-split strategy smoke experiments.
+- `python -m table_agent.cli fallback-smoke`
+  - Run third-stage full-image fallback counterfactual experiments.
 
 ## 5. Module Map
 
@@ -169,7 +186,7 @@ Commands:
     1. Runs `_run_baseline`.
     2. Runs `_run_agent`.
     3. Writes row through `raw_responses/e2e_rows/` to avoid multiprocessing queue hangs on large JSON.
-  - `_run_agent` is the likely integration point for third-stage retry/fallback metadata and behavior.
+  - `_run_agent` now records retry/fallback metadata and applies final high-tier fallback protection.
 
 ### Evaluation and diagnostics
 
@@ -181,42 +198,24 @@ Commands:
   - Builds case-level rows with TEDS deltas, warnings, crop row/col estimates, chunk statuses.
   - Good starting point for third-stage acceptance item 1.
 
-## 6. Third-Stage Task Pointers
+## 6. Third-Stage Completion Notes
 
-Active SPEC:
+Third-stage acceptance status:
 
-- `THIRD_STAGE_OPTIMIZATION_SPEC.zh.md`
+- Item 1 complete: offline diagnostics and retry/fallback candidate statistics.
+- Item 2 complete: re-split A/B smoke, including full `header_repeat`; no re-split strategy was positive.
+- Item 3 skipped by evidence: no validated retry strategy to connect.
+- Item 4 complete: full-image fallback counterfactual.
+- Item 5 complete: runtime fallback protection.
+- Item 6 complete: `low/medium/high/xhigh` cost tier comparison.
+- Item 7 complete: final high-tier fallback strategy selected.
+- Item 8 complete: documentation updated here and in `SPEC.zh.md`.
 
-Next acceptance item:
+Final recommendation:
 
-- Acceptance item 1: third-stage offline diagnostics and retry/fallback candidate case statistics.
-
-Likely files to read first for acceptance item 1:
-
-- `table_agent/diagnostics.py`
-- `table_agent/evaluation.py`
-- `table_agent/runner.py`
-- `table_agent/otsl.py`
-- `outputs/e2e_aggressive_48.summary.json`
-- `outputs/e2e_aggressive_48.jsonl`
-- `outputs/e2e_aggressive_48.baseline.scored.jsonl`
-- `outputs/e2e_aggressive_48.agent.scored.jsonl`
-
-Likely first implementation path:
-
-1. Extend or add an offline diagnostic helper. Do not touch runtime yet.
-2. Use only runtime-observable signals for candidate labels:
-   - warnings
-   - chunk count
-   - split decision
-   - crop row/column estimates
-   - crop statuses
-   - merged OTSL/HTML structural signals
-3. Use TEDS/GT-derived scores only to evaluate whether those labels are useful.
-4. Write a report/artifact under `outputs/` or a small tracked `.md` report if useful.
-5. Commit after the acceptance item passes.
-
-Do not start with retry/fallback runtime code until acceptance item 1 is complete.
+- Use aggressive split+merge.
+- Trigger agent full-image fallback when merge emits `column_count_inconsistent` and crop estimated column count spread is `>= 3`.
+- Do not enable re-split retry strategies until a future experiment shows net positive results.
 
 ## 7. Service And Runtime Notes
 
