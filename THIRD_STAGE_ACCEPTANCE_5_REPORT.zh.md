@@ -85,3 +85,7 @@ runtime fallback 分支 smoke：通过 monkeypatch `_run_agent` 的 split/recogn
 ## 结论
 
 runtime fallback 已接入，默认路径不增加额外调用；仅严重 column-count spread 异常触发 1 次额外 MinerU 整图识别。真实 smoke 跑通且未误触发；强制触发分支 smoke 验证了 fallback metadata 和最终结果选择。
+
+## 验收项 6 后阈值更新
+
+成本档位实验显示 `high` 档位均分最高，最终 runtime 阈值从 `col spread >= 4` 调整为 `col spread >= 3`。该阈值仍然只依赖运行时可观测信号：`column_count_inconsistent` warning 和 crop estimated column count spread。

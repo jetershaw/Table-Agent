@@ -294,7 +294,7 @@ def _fallback_reasons(warnings: list[str], crop_col_counts: list[int]) -> list[s
     tags = {warning.split(":", 1)[0] for warning in warnings}
     non_zero_cols = [count for count in crop_col_counts if count]
     col_spread = max(non_zero_cols) - min(non_zero_cols) if non_zero_cols else 0
-    if "column_count_inconsistent" in tags and col_spread >= 4:
+    if "column_count_inconsistent" in tags and col_spread >= 3:
         return [f"severe_col_count_spread:{col_spread}"]
     return []
 
