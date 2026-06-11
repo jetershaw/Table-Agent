@@ -261,18 +261,18 @@ OTSL repair 将 `illegal_otsl_tokens` warning 替换为 `repaired_stray_otsl_ang
 
 第三阶段验收归档：
 
-| 验收项 | 结论 | 归档报告 |
-| --- | --- | --- |
-| 1. 离线诊断与候选统计 | 完成，识别 retry/fallback 候选和运行时可观测信号 | `THIRD_STAGE_ACCEPTANCE_1_REPORT.zh.md` |
-| 2. re-split A/B smoke | 完成，`shift_cuts`、`chunk_count`、`header_overlap`、`qwen_header`、完整 `header_repeat` 均为净负收益 | `THIRD_STAGE_ACCEPTANCE_2_REPORT.zh.md` |
-| 3. retry-first 接入 | 跳过；没有已验证正收益 re-split 策略可接入 | `THIRD_STAGE_ACCEPTANCE_8_REPORT.zh.md` |
-| 4. fallback 反事实 | 完成，严重 `column_count_inconsistent` case 上 full-image fallback 净提升 | `THIRD_STAGE_ACCEPTANCE_4_REPORT.zh.md` |
-| 5. runtime fallback 保护 | 完成，agent 路径额外调用 MinerU 整图，不复用 baseline result | `THIRD_STAGE_ACCEPTANCE_5_REPORT.zh.md` |
-| 6. 成本档位 | 完成，`high` 档位均分最高，额外 MinerU 调用 4 次 | `THIRD_STAGE_ACCEPTANCE_6_REPORT.zh.md` |
-| 7. 最终 48 条评估 | 完成，最终 `agent_avg_teds=0.9127643569708148` | `THIRD_STAGE_ACCEPTANCE_7_REPORT.zh.md` |
-| 8. 文档交付与归档 | 完成，第三阶段 SPEC/REPORT 摘要合并进本文档和第 8 项总报告 | `THIRD_STAGE_ACCEPTANCE_8_REPORT.zh.md` |
+| 验收项 | 归档结论 |
+| --- | --- |
+| 1. 离线诊断与候选统计 | 完成，识别 retry/fallback 候选和运行时可观测信号。 |
+| 2. re-split A/B smoke | 完成，`shift_cuts`、`chunk_count`、`header_overlap`、`qwen_header`、完整 `header_repeat` 均为净负收益。 |
+| 3. retry-first 接入 | 跳过；没有已验证正收益 re-split 策略可接入。 |
+| 4. fallback 反事实 | 完成，严重 `column_count_inconsistent` case 上 full-image fallback 净提升。 |
+| 5. runtime fallback 保护 | 完成，agent 路径额外调用 MinerU 整图，不复用 baseline result。 |
+| 6. 成本档位 | 完成，`high` 档位均分最高，额外 MinerU 调用 4 次。 |
+| 7. 最终 48 条评估 | 完成，最终 `agent_avg_teds=0.9127643569708148`。 |
+| 8. 文档交付与归档 | 完成，第三阶段 SPEC/REPORT 摘要已合并进本文档，阶段文件已删除。 |
 
-`THIRD_STAGE_OPTIMIZATION_SPEC.zh.md` 和分项报告保留为审计材料；本节与 `THIRD_STAGE_ACCEPTANCE_8_REPORT.zh.md` 是第三阶段合并后的阅读入口。
+第三阶段阶段性 SPEC/REPORT 文件已清理；本节是第三阶段合并后的阅读入口。
 
 ### 第二阶段最终 48 条 aggressive full run
 

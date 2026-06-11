@@ -10,19 +10,12 @@ Start here, in this order:
 
 1. `PROJECT_MAP.md`
    - This orientation file.
-2. `THIRD_STAGE_ACCEPTANCE_7_REPORT.zh.md`
-   - Final third-stage strategy and 48-case result.
-3. `THIRD_STAGE_ACCEPTANCE_8_REPORT.zh.md`
-   - Final documentation delivery and cleanup record.
-4. `THIRD_STAGE_OPTIMIZATION_SPEC.zh.md`
-   - Historical third-stage SPEC; merged into `SPEC.zh.md` and retained for audit.
-   - Acceptance item 3 was skipped because no re-split strategy had positive smoke results.
-5. `SPEC.zh.md`
-   - Consolidated project spec and historical performance record.
+2. `SPEC.zh.md`
+   - Consolidated project spec, historical performance record, and merged third-stage archive.
    - Contains the current best 48-case result and prior completion history.
-6. `utils/CLAUDE.md`
+3. `utils/CLAUDE.md`
    - Local engineering rules: think first, keep changes surgical, verify each goal.
-7. `configs/default.yaml`
+4. `configs/default.yaml`
    - Default service/config paths and current baseline runtime knobs.
 
 Historical context only:
@@ -209,7 +202,7 @@ Third-stage acceptance status:
 - Item 5 complete: runtime fallback protection.
 - Item 6 complete: `low/medium/high/xhigh` cost tier comparison.
 - Item 7 complete: final high-tier fallback strategy selected.
-- Item 8 complete: documentation archived; third-stage SPEC/REPORT summaries merged into `SPEC.zh.md` and `THIRD_STAGE_ACCEPTANCE_8_REPORT.zh.md`.
+- Item 8 complete: documentation archived; third-stage SPEC/REPORT summaries merged into `SPEC.zh.md`, and stage files removed.
 
 Final recommendation:
 
