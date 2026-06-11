@@ -249,6 +249,18 @@ OTSL repair 将 `illegal_otsl_tokens` warning 替换为 `repaired_stray_otsl_ang
 | avg_split_iterations | 1.4583333333333333 |
 
 相对上一版目标 `agent_avg_teds=0.8926355322939662`，提升 `+0.011223771717068434`。
+metric	含义
+count	参与统计的样本数，这里是 48 条表格图片。
+baseline_avg_teds	baseline 的平均 TEDS 分数。baseline 指整图直接送 MinerU 识别，不经过 agent 切分。
+agent_avg_teds	agent 的平均 TEDS 分数。agent 指经过 Qwen 判断是否切分、crop 识别、OTSL 合并后的结果。
+absolute_improvement	绝对提升量，等于 agent_avg_teds - baseline_avg_teds。这里是 0.903859 - 0.861495 = 0.042365。
+relative_improvement	相对提升比例，等于 absolute_improvement / baseline_avg_teds。这里约等于 4.92%。
+success_count	agent 成功产出结果的样本数。这里 48 条都成功。
+failure_count	agent 失败的样本数。这里是 0。
+avg_chunk_count	每张图平均被切成多少个 chunk。这里是 1.9167，说明大多数图被切成约 2 段，也有少数不切或切成更多段。
+avg_split_iterations	平均每张图经历了多少轮 split review / 切分决策迭代。这里是 1.4583。
+一句话总结：
+baseline 整图识别平均 TEDS 是 0.8615，agent 平均是 0.9039，所以 agent 在这 48 条上平均提升了约 0.0424，相对提升约 4.92%。
 
 Most improved Top 8：
 
