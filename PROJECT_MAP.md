@@ -15,7 +15,7 @@ Start here, in this order:
 3. `THIRD_STAGE_ACCEPTANCE_8_REPORT.zh.md`
    - Final documentation delivery and cleanup record.
 4. `THIRD_STAGE_OPTIMIZATION_SPEC.zh.md`
-   - Historical third-stage SPEC; acceptance items 1, 2, 4, 5, 6, and 7 are complete.
+   - Historical third-stage SPEC; merged into `SPEC.zh.md` and retained for audit.
    - Acceptance item 3 was skipped because no re-split strategy had positive smoke results.
 5. `SPEC.zh.md`
    - Consolidated project spec and historical performance record.
@@ -209,7 +209,7 @@ Third-stage acceptance status:
 - Item 5 complete: runtime fallback protection.
 - Item 6 complete: `low/medium/high/xhigh` cost tier comparison.
 - Item 7 complete: final high-tier fallback strategy selected.
-- Item 8 complete: documentation updated here and in `SPEC.zh.md`.
+- Item 8 complete: documentation archived; third-stage SPEC/REPORT summaries merged into `SPEC.zh.md` and `THIRD_STAGE_ACCEPTANCE_8_REPORT.zh.md`.
 
 Final recommendation:
 

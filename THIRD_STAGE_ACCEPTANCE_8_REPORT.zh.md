@@ -18,6 +18,25 @@
   - 更新当前最佳结果、pipeline flow、CLI/module map、runtime fallback 边界。
   - 标注第三阶段验收项状态：1、2、4、5、6、7 完成；3 因 re-split smoke 无正收益而跳过；8 完成。
 
+## 阶段 SPEC/REPORT 合并
+
+- 第三阶段 SPEC 已合并进 `SPEC.zh.md` 的项目目标、运行时边界、实验结果、推荐策略、复现命令和清理约定章节。
+- 仓库没有独立的历史总 `REPORT.md` / `REPORT.zh.md` 文件；本文件作为第三阶段合并 REPORT，汇总分项报告的结论并保留分项报告作审计材料。
+- `THIRD_STAGE_OPTIMIZATION_SPEC.zh.md` 和 `THIRD_STAGE_ACCEPTANCE_*_REPORT.zh.md` 不作为运行入口；后续优先阅读 `SPEC.zh.md`、`PROJECT_MAP.md` 和本报告。
+
+分项报告摘要：
+
+| 验收项 | 摘要 |
+| --- | --- |
+| 1 | 完成离线诊断，得到 retry/fallback candidates 和 runtime-observable signals。 |
+| 2 | 完成 re-split smoke；所有 re-split 策略净负，完整 `header_repeat` 也不进入 runtime。 |
+| 3 | 因无正收益 re-split 策略，retry-first 主流程接入跳过。 |
+| 4 | fallback 反事实验证正收益，候选 3 条均改善。 |
+| 5 | 实现 runtime fallback metadata 与 full-image fallback 保护。 |
+| 6 | 完成 `low/medium/high/xhigh` 成本档位对比，`high` 档位最佳。 |
+| 7 | 选择 high fallback 最终策略，48 条 counterfactual 达到 `0.9127643569708148`。 |
+| 8 | 完成文档交付、归档合并和安全中间文件清理。 |
+
 ## 最终推荐
 
 运行时策略：
@@ -62,8 +81,10 @@
 - `outputs/e2e_fallback_counterfactual_48.jsonl`
 - `outputs/e2e_fallback_counterfactual_48.agent.scored.jsonl`
 - `outputs/e2e_fallback_counterfactual_48.summary.json`
+- `table_agent/__pycache__/`
+- `outputs/resplit_smoke_probe/`
 
-保留早期验收报告显式引用的 smoke artifacts，避免历史报告断链。
+保留分项报告显式引用或 JSONL 间接引用的 smoke artifacts，避免历史报告断链。`crops/resplit_*` 属于实验 crop 图片，是否删除会影响 smoke JSONL 的人工复核，因此本次不删除。
 
 ## 验收结论
 

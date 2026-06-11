@@ -70,7 +70,7 @@ python /mnt/shared-storage-user/mineru2-shared/xiaojutao/utils/score_teds_jsonl.
 
 - `python -m py_compile table_agent/resplit_experiment.py table_agent/cli.py`
 - `python -m table_agent.cli resplit-smoke --help`
-- 单样本探针：`outputs/resplit_smoke_probe/shift_cuts.jsonl`
+- 单样本探针：已在收尾归档阶段清理；正式 smoke 结果以 `outputs/resplit_smoke_acceptance2/*.jsonl` 为准。
 - 四策略 smoke：`outputs/resplit_smoke_acceptance2/*.jsonl`
 - 四策略评分：`outputs/resplit_smoke_acceptance2/*.scored.jsonl`
 
