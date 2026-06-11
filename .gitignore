@@ -7,3 +7,5 @@ outputs/*.json
 raw_responses/**/*.json
 crops/*
 !crops/.gitkeep
+outputs/**/*.jsonl
+outputs/**/*.json

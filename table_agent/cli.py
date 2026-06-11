@@ -12,6 +12,7 @@ from table_agent.diagnostics import diagnose_run
 from table_agent.evaluation import summarize_evaluation
 from table_agent.merge import merge_crop_recognition_output
 from table_agent.recognition import run_crop_recognition
+from table_agent.resplit_experiment import STRATEGIES, run_resplit_smoke
 from table_agent.runner import run_end_to_end
 from table_agent.smoke import run_vision_smoke
 from table_agent.splitter import run_split_generation
@@ -144,6 +145,30 @@ def main() -> int:
     diagnose_parser.add_argument("--output-json", required=True)
     diagnose_parser.add_argument("--top-k", type=int, default=8)
 
+    resplit_parser = subparsers.add_parser(
+        "resplit-smoke", help="Run offline re-split strategy smoke experiments."
+    )
+    resplit_parser.add_argument(
+        "--config",
+        default=str(DEFAULT_CONFIG),
+        help=f"Path to config YAML. Defaults to {DEFAULT_CONFIG}.",
+    )
+    resplit_parser.add_argument("--run-jsonl", required=True)
+    resplit_parser.add_argument("--diagnostics-json", default=None)
+    resplit_parser.add_argument(
+        "--indices",
+        default=None,
+        help="Comma-separated benchmark indices. Defaults to diagnostic fallback candidates.",
+    )
+    resplit_parser.add_argument(
+        "--strategies",
+        default=",".join(STRATEGIES),
+        help=f"Comma-separated strategies. Defaults to {','.join(STRATEGIES)}.",
+    )
+    resplit_parser.add_argument("--output-dir", default="outputs/resplit_smoke")
+    resplit_parser.add_argument("--shift-px", type=int, default=48)
+    resplit_parser.add_argument("--header-overlap-px", type=int, default=96)
+
     args = parser.parse_args()
     if args.command == "config":
         config = load_config(args.config)
@@ -234,9 +259,33 @@ def main() -> int:
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
+    if args.command == "resplit-smoke":
+        config = load_config(args.config)
+        indices = _parse_csv_ints(args.indices) if args.indices else None
+        strategies = _parse_csv_strings(args.strategies)
+        result = run_resplit_smoke(
+            config,
+            run_jsonl=args.run_jsonl,
+            diagnostics_json=args.diagnostics_json,
+            indices=indices,
+            strategies=strategies,
+            output_dir=args.output_dir,
+            shift_px=args.shift_px,
+            header_overlap_px=args.header_overlap_px,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
 
     parser.error(f"Unknown command: {args.command}")
     return 2
+
+
+def _parse_csv_ints(value: str) -> list[int]:
+    return [int(item.strip()) for item in value.split(",") if item.strip()]
+
+
+def _parse_csv_strings(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 if __name__ == "__main__":
