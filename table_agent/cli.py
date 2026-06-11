@@ -10,6 +10,7 @@ from table_agent.baseline import run_baseline_collection
 from table_agent.config import load_config
 from table_agent.diagnostics import diagnose_run
 from table_agent.evaluation import summarize_evaluation
+from table_agent.fallback_experiment import run_fallback_smoke
 from table_agent.merge import merge_crop_recognition_output
 from table_agent.recognition import run_crop_recognition
 from table_agent.resplit_experiment import STRATEGIES, run_resplit_smoke
@@ -169,6 +170,24 @@ def main() -> int:
     resplit_parser.add_argument("--shift-px", type=int, default=48)
     resplit_parser.add_argument("--header-overlap-px", type=int, default=96)
 
+    fallback_parser = subparsers.add_parser(
+        "fallback-smoke", help="Run offline full-image fallback counterfactuals."
+    )
+    fallback_parser.add_argument(
+        "--config",
+        default=str(DEFAULT_CONFIG),
+        help=f"Path to config YAML. Defaults to {DEFAULT_CONFIG}.",
+    )
+    fallback_parser.add_argument("--diagnostics-json", default=None)
+    fallback_parser.add_argument(
+        "--indices",
+        default=None,
+        help="Comma-separated benchmark indices. Defaults to diagnostic fallback regressions.",
+    )
+    fallback_parser.add_argument(
+        "--output-jsonl", default="outputs/fallback_smoke/fallback.jsonl"
+    )
+
     args = parser.parse_args()
     if args.command == "config":
         config = load_config(args.config)
@@ -272,6 +291,17 @@ def main() -> int:
             output_dir=args.output_dir,
             shift_px=args.shift_px,
             header_overlap_px=args.header_overlap_px,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "fallback-smoke":
+        config = load_config(args.config)
+        indices = _parse_csv_ints(args.indices) if args.indices else None
+        result = run_fallback_smoke(
+            config,
+            diagnostics_json=args.diagnostics_json,
+            indices=indices,
+            output_jsonl=args.output_jsonl,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
